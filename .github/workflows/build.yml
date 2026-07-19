@@ -127,14 +127,23 @@ jobs:
 
           if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
             echo "🔧 Injecting qemu-aarch64-static into masterdir"
-            mkdir -p masterdir-${{ matrix.config.arch }}/usr/bin
-            cp /usr/bin/qemu-aarch64-static masterdir-${{ matrix.config.arch }}/usr/bin/
+            mkdir -p /home/builder/void-packages/masterdir-${{ matrix.config.arch }}/usr/bin
+            cp /usr/bin/qemu-aarch64-static /home/builder/void-packages/masterdir-${{ matrix.config.arch }}/usr/bin/
           fi
 
       - name: 📦 build pkgs
         working-directory: /home/builder/void-packages
         run: |
           pkgs=$(cat /tmp/templates)
+
+          # Создаём скрипт, который удалит /void-packages внутри chroot
+          cat > /tmp/chroot-prepare.sh << 'EOF'
+          #!/bin/sh
+          rm -rf /void-packages
+          echo "✅ /void-packages removed inside chroot"
+          EOF
+          chmod +x /tmp/chroot-prepare.sh
+          sudo -Eu builder chown builder:builder /tmp/chroot-prepare.sh
 
           for pkg in $pkgs; do
             echo "🏗️ Building $pkg for $ARCH..."
@@ -143,6 +152,7 @@ jobs:
                 XBPS_ALLOW_CHROOT_BREAKOUT=1 \
                 XBPS_NO_UNSHARE=1 \
                 XBPS_SRC_HOME=/home/builder/void-packages \
+                XBPS_CHROOT_PREPARE_SCRIPT=/tmp/chroot-prepare.sh \
                 /home/builder/void-packages/xbps-src \
                   -m masterdir-${{ matrix.config.arch }} \
                   -a ${{ matrix.config.arch }} \
@@ -151,12 +161,14 @@ jobs:
               sudo -Eu builder \
                 XBPS_NO_UNSHARE=1 \
                 XBPS_SRC_HOME=/home/builder/void-packages \
+                XBPS_CHROOT_PREPARE_SCRIPT=/tmp/chroot-prepare.sh \
                 /home/builder/void-packages/xbps-src \
                   -m masterdir-${{ matrix.config.arch }} \
                   -A ${{ matrix.config.arch }} \
                   pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
             fi
           done
+
 
       - name: 🧾 Clean & sign
         working-directory: /home/builder/void-packages/hostdir/binpkgs
