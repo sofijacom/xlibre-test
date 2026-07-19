@@ -57,16 +57,23 @@ jobs:
 
       - name: 🔎 Clone void-packages
         run: |
-          git clone --depth=1 https://github.com/void-linux/void-packages.git
-          cd void-packages
+          git clone --depth=1 https://github.com/void-linux/void-packages.git /tmp/void-packages-src
+          cd /tmp/void-packages-src
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "*"
           git remote add -f sofijacom https://github.com/sofijacom/xlibre-test.git
           git merge --no-commit --strategy-option=theirs --allow-unrelated-histories -Xignore-space-change sofijacom/main
 
+      - name: 📁 Move to safe location
+        run: |
+          mkdir -p /home/builder/void-packages
+          cp -r /tmp/void-packages-src/* /home/builder/void-packages/
+          chown -R builder:builder /home/builder/void-packages
+          echo "✅ void-packages moved to /home/builder/void-packages"
+
       - name: 📋 Identify changes to build
-        working-directory: void-packages
+        working-directory: /home/builder/void-packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -75,7 +82,6 @@ jobs:
           echo "Latest Tag Name: ${latest_name}"
           echo "Latest Tag SHA: ${latest_sha}"
 
-          chown -R builder:builder .
           git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
           | cut -d/ -f 2 | uniq | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
 
@@ -133,9 +139,9 @@ jobs:
                   pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
             fi
           done
-          
+
       - name: 🧾 Clean & sign
-        working-directory: void-packages/hostdir/binpkgs
+        working-directory: /home/builder/void-packages/hostdir/binpkgs
         env:
           PRIVKEY: ${{ secrets.PRIV_KEY }}
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
@@ -148,7 +154,7 @@ jobs:
           sudo -Eu builder xbps-rindex --clean ${PWD}
 
       - name: 🔢 checksum
-        working-directory: void-packages/hostdir/binpkgs
+        working-directory: /home/builder/void-packages/hostdir/binpkgs
         run: |
           rm -rf *.sha256sum *.sha512sum
           count=$(ls -1 *.xbps 2>/dev/null | wc -l)
@@ -165,7 +171,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.config.arch }}-repodata
-          path: void-packages/hostdir/binpkgs
+          path: /home/builder/void-packages/hostdir/binpkgs
 
       - name: 🏷️ short sha
         run: |
@@ -179,6 +185,6 @@ jobs:
           name: ${{ env.SHORT_SHA }}
           tag_name: ${{ env.TAG }}
           files: |
-            void-packages/hostdir/binpkgs/*.xbps
-            void-packages/hostdir/binpkgs/*.sig2
-            void-packages/hostdir/binpkgs/*repodata
+            /home/builder/void-packages/hostdir/binpkgs/*.xbps
+            /home/builder/void-packages/hostdir/binpkgs/*.sig2
+            /home/builder/void-packages/hostdir/binpkgs/*repodata
