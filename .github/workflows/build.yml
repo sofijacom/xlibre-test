@@ -54,16 +54,15 @@ jobs:
         run: |
           git clone --depth=1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" /work
           chown -R builder:xbuilder /work
-
+          
       - name: 📦 binary-bootstrap
         run: |
           cd /home/builder/void-packages
 
-          # Создаём masterdir и etc/xbps.d вручную
-          MASTERDIR="masterdir-${TARGET_ARCH}"
-          mkdir -p "$MASTERDIR/etc/xbps.d"
+          # 🔥 УДАЛЯЕМ РУЧНОЕ СОЗДАНИЕ masterdir — ПУСТЬ СОЗДАСТСЯ САМ
+          # mkdir -p "$MASTERDIR/etc/xbps.d" — ❌ убираем
 
-          # Запускаем bootstrap
+          # Запускаем bootstrap от builder — он сам создаст masterdir
           sudo -Eu builder \
             XBPS_NO_UNSHARE=1 \
             ./xbps-src -a "$TARGET_ARCH" -A "$TARGET_ARCH" binary-bootstrap
@@ -76,26 +75,38 @@ jobs:
           if [ -f /work/srcpkgs-to-build.txt ]; then
             echo "list=$(cat /work/srcpkgs-to-build.txt | tr '\n' ' ')" >> $GITHUB_OUTPUT
           else
-            echo "list=hyprland" >> $GITHUB_OUTPUT
+            echo "list=hello" >> $GITHUB_OUTPUT  # 🧪 Быстрый тест
           fi
-
 
       - name: 🚀 Сборка внутри chroot
         run: |
           cd /home/builder/void-packages
           MASTERDIR="masterdir-${TARGET_ARCH}"
-          ...
-          su - builder -c '
-          for pkg in ${{ steps.packages.outputs.list }}; do
-          echo "🔧 Собираем: \$pkg"
-          ./xbps-src -a $TARGET_ARCH pkg "\$pkg" | tee build.log  # ← лог в реальном времени
-          if [ \$? -ne 0 ]; then
-          echo "❌ Ошибка при сборке \$pkg"
-          exit 1
-          fi
-          done
-          '
 
+          # Копируем srcpkgs
+          cp -r /work/srcpkgs/* srcpkgs/ 2>/dev/null || true
+
+          # Запускаем сборку ВНУТРИ chroot
+          chroot "$MASTERDIR" /bin/sh -c "
+            export HOME=/home/builder
+            export USER=builder
+            export XBPS_ALLOW_CHROOT_BREAKOUT=1
+            cd /void-packages
+            su - builder -c '
+              for pkg in ${{ steps.packages.outputs.list }}; do
+                echo \"🔧 Собираем: \$pkg\"
+                ./xbps-src -a $TARGET_ARCH pkg \"\$pkg\" || exit 1
+                echo \"✅ \$pkg собран\"
+              done
+            '
+          "
+
+          if [ $? -eq 0 ]; then
+            echo "✅ Сборка завершена"
+          else
+            echo "❌ Ошибка сборки"
+            exit 1
+          fi
           
       - name: Clean & sign
         working-directory: /home/builder/void-packages/hostdir/binpkgs
