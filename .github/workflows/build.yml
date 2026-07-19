@@ -1,5 +1,5 @@
 name: "🏗️ Build Latest Packages"
- 
+
 env:
   TAG: workflow-${{ github.run_number }}
   SHA: ${{ github.sha }}
@@ -20,19 +20,20 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   
+
     strategy:
       fail-fast: false
       matrix:
         config:
           - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
           - { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
-          - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
           - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
-          - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
-          
+          - { arch: aarch64,      host: aarch64,     libc: glibc, platform: linux/arm64, test: 0 }
+          - { arch: aarch64-musl, host: aarch64-musl, libc: musl,  platform: linux/arm64, test: 0 }
+
     container:
       image: ghcr.io/void-linux/void-glibc-full:20250616R1
-      options: --platform linux/amd64 --privileged
+      options: --platform ${{ matrix.config.platform }} --privileged
       volumes:
         - /dev:/dev
       env:
@@ -42,17 +43,23 @@ jobs:
         XBPS_TARGET_ARCH: '${{ matrix.config.arch }}'
         REPO_OWNER: "${{ github.repository_owner }}"
         REPO_NAME: "${{ github.event.repository.name }}"
+
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:    
-      - name: Prep container
+      - name: 🐳 Prep container
         run: |
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
-          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq zip unzip git github-cli xtools coreutils
+          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl git github-cli xtools coreutils qemu-user-static
           useradd -G xbuilder -M builder -s $(which bash)
-          
+
+          # 🔧 Установим кросс-инструменты для aarch64
+          if [ "${{ matrix.config.host }}" = "aarch64" ] || [ "${{ matrix.config.host }}" = "aarch64-musl" ]; then
+            env -u XBPS_TARGET_ARCH xbps-install -y gcc-aarch64-linux-gnu glibc-devel-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          fi
+
       - name: 🔎 Checkout void-packages
         uses: actions/checkout@v6
         with:
@@ -104,7 +111,17 @@ jobs:
         working-directory: void-packages
         run: |
           chown -R builder:builder .
-          yes | sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
+          # 🔧 Для aarch64 — используем кросс-сборку
+          if [ "${{ matrix.config.host }}" = "aarch64" ] || [ "${{ matrix.config.host }}" = "aarch64-musl" ]; then
+            sudo -Eu builder \
+              XBPS_CROSS_BUILD=aarch64-linux-gnu \
+              XBPS_TARGET_ARCH=aarch64 \
+              ./xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
+          else
+            sudo -Eu builder \
+              XBPS_NO_UNSHARE=1 \
+              ./xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
+          fi
 
       - name: 📦 build pkgs
         working-directory: void-packages
@@ -113,7 +130,16 @@ jobs:
           pkgs=$(cat /tmp/templates)
           for pkg in ${pkgs}; do
             echo "🏗️ Building $pkg for $ARCH..."
-            sudo -Eu builder ./xbps-src pkg -j$(nproc) -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} "${pkg}" || printf "Failed building ${pkg}!\n"
+            if [ "${{ matrix.config.host }}" = "aarch64" ] || [ "${{ matrix.config.host }}" = "aarch64-musl" ]; then
+              sudo -Eu builder \
+                XBPS_CROSS_BUILD=aarch64-linux-gnu \
+                XBPS_TARGET_ARCH=aarch64 \
+                ./xbps-src pkg -j$(nproc) -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} "${pkg}" || printf "Failed building ${pkg}!\n"
+            else
+              sudo -Eu builder \
+                XBPS_NO_UNSHARE=1 \
+                ./xbps-src pkg -j$(nproc) -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} "${pkg}" || printf "Failed building ${pkg}!\n"
+            fi
           done
 
       - name: 🧾 Clean & sign
@@ -133,8 +159,6 @@ jobs:
         working-directory: void-packages/hostdir/binpkgs
         run: |
           rm -rf *.sha256sum *.sha512sum
-          
-          # Only run the loop if there are actually files ending in .xbps
           count=$(ls -1 *.xbps 2>/dev/null | wc -l)
           if [ "$count" != 0 ]; then
             for file in *.xbps; do
