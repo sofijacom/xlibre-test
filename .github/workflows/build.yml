@@ -78,21 +78,26 @@ jobs:
           mkdir -p /home/builder
           chown builder:builder /home/builder
 
-      - name: 🔧 Install cross compilers
+      - name: 🔧 Install cross compilers (custom names)
         run: |
+          echo "==> Detected ARCH: $ARCH"
           case "$ARCH" in
-            aarch64|aarch64-musl)
-              xbps-install -y cross-aarch64-linux-gnu || xbps-install -y cross-aarch64-musl-linux-musl
+            aarch64)
+              pkg="cross-aarch64-linux-gnu"
+              ;;
+            aarch64-musl)
+              pkg="cross-aarch64-linux-musl"
               ;;
             armv7l)
-              xbps-install -y cross-armv7l-linux-gnueabihf
+              pkg="cross-armv7l-linux-gnueabihf"
               ;;
-            i686)
-              # Для i686 кросс-компиляция обычно не нужна, если хост x86_64
-              echo "No cross compiler needed for i686 on x86_64 host"
+            i686|x86_64|x86_64-musl)
+              echo "Native or no cross-compiler needed for $ARCH"
+              exit 0
               ;;
-            x86_64|x86_64-musl)
-              echo "Native build, no cross compiler needed"
+            *)
+              echo "Unknown architecture: $ARCH, skipping"
+              exit 0
               ;;
           esac
 
@@ -192,21 +197,26 @@ jobs:
       #    # Проверка: выводим список, чтобы видеть в логах, что права есть
       #    ls -la /home/builder/void-packages/common/hooks/pre-configure/
 
-      - name: 🔧 Install cross compilers
+      - name: 🔧 Install cross compilers (custom names)
         run: |
+          echo "==> Detected ARCH: $ARCH"
           case "$ARCH" in
-            aarch64|aarch64-musl)
-              xbps-install -y cross-aarch64-linux-gnu || xbps-install -y cross-aarch64-musl-linux-musl
+            aarch64)
+              pkg="cross-aarch64-linux-gnu"
+              ;;
+            aarch64-musl)
+              pkg="cross-aarch64-linux-musl"
               ;;
             armv7l)
-              xbps-install -y cross-armv7l-linux-gnueabihf
+              pkg="cross-armv7l-linux-gnueabihf"
               ;;
-            i686)
-              # Для i686 кросс-компиляция обычно не нужна, если хост x86_64
-              echo "No cross compiler needed for i686 on x86_64 host"
+            i686|x86_64|x86_64-musl)
+              echo "Native or no cross-compiler needed for $ARCH"
+              exit 0
               ;;
-            x86_64|x86_64-musl)
-              echo "Native build, no cross compiler needed"
+            *)
+              echo "Unknown architecture: $ARCH, skipping"
+              exit 0
               ;;
           esac
 
