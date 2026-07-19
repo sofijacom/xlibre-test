@@ -53,14 +53,30 @@ jobs:
           # switch to repo-ci mirror
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf
+
           # install dependencies
-          xbps-install -Syu xbps && xbps-install -yu && xbps-install -y sudo bash curl grep git jq xz zip unzip github-cli xtools qemu-user-static
+          xbps-install -Syu xbps && xbps-install -yu
+
+          # base tools
+          xbps-install -y sudo bash curl git jq xz zip unzip github-cli xtools
+
+          # qemu-user-static — only on x86_64 host (not on i686)
+          if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "x86_64-musl" ]; then
+            if xbps-query -Rs '^qemu-user-static$' > /dev/null; then
+              xbps-install -y qemu-user-static
+            else
+              echo "⚠️ qemu-user-static not available for this architecture, skipping."
+            fi
+          else
+            echo "⚠️ Not installing qemu-user-static on $ARCH — not needed or not available."
+          fi
+
           # create non-root user
           useradd -G xbuilder -M builder -s /bin/bash
           # prepare home
           mkdir -p /home/builder
           chown builder:builder /home/builder
-
+          
       - name: Checkout this repo
         run: |
           git clone --depth 1 "https://github.com/${{ github.repository }}.git" extra
