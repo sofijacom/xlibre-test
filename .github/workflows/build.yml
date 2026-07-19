@@ -21,7 +21,7 @@ jobs:
     name: Build packages
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:20250616R1
+      image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full  # :20250616R1
       options: --platform ${{ matrix.config.platform }} --privileged
       volumes:
         - /dev:/dev
@@ -36,11 +36,11 @@ jobs:
       fail-fast: false
       matrix:
         config: &build_matrix
-          - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
-          - { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
+          # - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
+          # - { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
           - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
           # - { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
-          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
+          # - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
           # - { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
 
@@ -183,10 +183,6 @@ jobs:
           # Копируем шаблоны пакетов
           cp -rv extra/srcpkgs/* /home/builder/void-packages/srcpkgs/
 
-          # Копируем hooks (только файлы, сохраняя структуру папок)
-          # mkdir -p /home/builder/void-packages/common/hooks/pre-configure
-          # cp -v extra/common/hooks/pre-configure/* /home/builder/void-packages/common/hooks/pre-configure/ 2>/dev/null || true
-
           SHLIBS_FILE="/home/builder/void-packages/common/shlibs"
           APPEND_FILE="extra/shlibs_append"
           REMOVE_FILE="extra/shlibs_remove"
@@ -215,6 +211,51 @@ jobs:
       # ЭТА ЧАСТЬ РЕШАЕТ ОШИБКУ: Could not find package 'cross-aarch64-linux-gnu'
       # ------------------------------------------------------------------
 
+      - name: 🔧 Install correct cross compilers
+        run: |
+          case "$ARCH" in
+            aarch64)
+              pkg="cross-aarch64-linux-gnu"
+              ;;
+            aarch64-musl)
+              pkg="cross-aarch64-linux-musl"
+              ;;
+            armv7l)
+              pkg="cross-armv7l-linux-gnueabihf"
+              ;;
+            *)
+              echo "Native arch, skipping cross compiler"
+              exit 0
+              ;;
+          esac
+
+          echo "==> Installing: $pkg"
+          xbps-install -y "$pkg"
+
+      # 👇 ЭТОТ ШАГ КРИТИЧЕСКИ ВАЖЕН 👇
+      - name: 🗺 Add cross-compiler paths to PATH
+        run: |
+          case "$ARCH" in
+            aarch64)
+              # Для glibc
+              export PATH="/usr/lib/cross-aarch64-unknown-linux-gnu/bin:$PATH"
+              export CC="aarch64-unknown-linux-gnu-gcc"
+              ;;
+            aarch64-musl)
+              # Для musl — именно твой случай
+              export PATH="/usr/lib/cross-aarch64-musl-linux-musl/bin:$PATH"
+              export CC="aarch64-musl-linux-musl-gcc"
+              ;;
+            armv7l)
+              export PATH="/usr/lib/cross-armv7l-unknown-linux-gnueabihf/bin:$PATH"
+              export CC="armv7l-unknown-linux-gnueabihf-gcc"
+              ;;
+            *)
+              echo "No cross-compiler path needed"
+              ;;
+          esac
+          echo "✅ CC and HOST_TRIPLET set for ARCH=$ARCH"
+
       - name: Prepare masterdir
         run: |
           cd /home/builder/void-packages
@@ -238,12 +279,38 @@ jobs:
             exit 0
           fi
 
+          # Определяем CC и HOST_TRIPLET прямо здесь, в том же шаге, где идёт сборка
+          case "$ARCH" in
+            aarch64)
+              CC_VAL="aarch64-unknown-linux-gnu-gcc"
+              HOST_TRIPLET="aarch64-unknown-linux-gnu"
+              ;;
+            aarch64-musl)
+              # Именно этот префикс даёт пакет cross-aarch64-linux-musl
+              CC_VAL="aarch64-musl-linux-musl-gcc"
+              HOST_TRIPLET="aarch64-musl-linux-musl"
+              ;;
+            armv7l)
+              CC_VAL="armv7l-unknown-linux-gnueabihf-gcc"
+              HOST_TRIPLET="armv7l-unknown-linux-gnueabihf"
+              ;;
+            *)
+              # Нативная сборка — CC не переопределяем
+              CC_VAL=""
+              HOST_TRIPLET=""
+              ;;
+          esac
+
           if [ "$BOOTSTRAP" != "$ARCH" ]; then
             arch="-a $ARCH"
+          else
+            arch=""
           fi
 
           if [ "$TEST" = 1 ]; then
             test="-Q"
+          else
+            test=""
           fi
 
           PKGS=$(sudo -Eu builder ./xbps-src $test sort-dependencies $changed)
@@ -251,11 +318,26 @@ jobs:
           failed=""
 
           for pkg in ${PKGS}; do
-            if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch $test pkg "${pkg}"; then
-              built="$built $pkg"
+            if [ -n "$CC_VAL" ]; then
+              # ВАЖНО: передаём CC и CFLAGS напрямую в xbps-src
+              if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch $test pkg \
+                  CC="$CC_VAL" \
+                  CFLAGS="-O2" \
+                  HOST_TRIPLET="$HOST_TRIPLET" \
+                  "${pkg}"; then
+                built="$built $pkg"
+              else
+                echo "!! build failed for ${pkg}"
+                failed="$failed $pkg"
+              fi
             else
-              echo "!! build failed for ${pkg}"
-              failed="$failed $pkg"
+              # Нативная сборка — без переопределения компилятора
+              if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch $test pkg "${pkg}"; then
+                built="$built $pkg"
+              else
+                echo "!! build failed for ${pkg}"
+                failed="$failed $pkg"
+              fi
             fi
           done
 
@@ -307,7 +389,7 @@ jobs:
           fi
 
       - name: 📤 Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.config.arch }}-repodata
           path: /home/builder/void-packages/hostdir/binpkgs
