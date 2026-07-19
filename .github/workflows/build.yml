@@ -80,9 +80,8 @@ jobs:
           | cut -d/ -f 2 | uniq | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
 
       - name: 📋 Setup void-packages
-        working-directory: void-packages
+        working-directory: /home/builder/void-packages
         run: |
-          chown -R builder:builder .
           mkdir -p etc
           echo XBPS_BUILD_ENVIRONMENT=void-packages-ci >> etc/conf
           echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
@@ -92,16 +91,15 @@ jobs:
           echo 'XBPS_MASTERDIR_PKGS="$PWD/hostdir/binpkgs"' >> etc/conf
 
       - name: ✅ Fix execute permissions
-        working-directory: void-packages
+        working-directory: /home/builder/void-packages
         run: |
           echo "🔧 Fixing execute permissions for xbps-src and templates"
           chmod +x xbps-src
           find srcpkgs -name template -type f -exec chmod +x {} \;
 
       - name: ✅ Prepare masterdir
-        working-directory: void-packages
+        working-directory: /home/builder/void-packages
         run: |
-          chown -R builder:builder .
           sudo -Eu builder \
             XBPS_NO_UNSHARE=1 \
             ./xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
@@ -113,9 +111,8 @@ jobs:
           fi
 
       - name: 📦 build pkgs
-        working-directory: void-packages
+        working-directory: /home/builder/void-packages
         run: |
-          chown -R builder:builder .
           pkgs=$(cat /tmp/templates)
 
           for pkg in $pkgs; do
@@ -136,7 +133,7 @@ jobs:
                   pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
             fi
           done
-
+          
       - name: 🧾 Clean & sign
         working-directory: void-packages/hostdir/binpkgs
         env:
