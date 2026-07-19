@@ -31,8 +31,8 @@ jobs:
       REPO_OWNER: "${{ github.repository_owner }}"
       REPO_NAME: "${{ github.event.repository.name }}"
       TARGET_ARCH: "${{ matrix.arch }}"
-      XBPS_ALLOW_CHROOT_BREAKOUT: "1"
-      XBPS_NO_UNSHARE: "1"
+   #   XBPS_ALLOW_CHROOT_BREAKOUT: "1"
+   #   XBPS_NO_UNSHARE: "1"
 
     steps:
       - name: 🔧 Подготовка системы
@@ -58,9 +58,16 @@ jobs:
       - name: 📦 binary-bootstrap
         run: |
           cd /home/builder/void-packages
+
+          # Создаём masterdir и etc/xbps.d вручную
+          MASTERDIR="masterdir-${TARGET_ARCH}"
+          mkdir -p "$MASTERDIR/etc/xbps.d"
+
+          # Запускаем bootstrap
           sudo -Eu builder \
             XBPS_NO_UNSHARE=1 \
             ./xbps-src -a "$TARGET_ARCH" -A "$TARGET_ARCH" binary-bootstrap
+
           echo "✅ base-chroot установлен"
 
       - name: 📝 Читаем список пакетов
@@ -72,16 +79,15 @@ jobs:
             echo "list=hyprland" >> $GITHUB_OUTPUT
           fi
 
-      # 🚀 СБОРКА — ТОЛЬКО ВНУТРИ chroot
       - name: 🚀 Сборка внутри chroot
         run: |
           cd /home/builder/void-packages
-          MASTERDIR="$PWD/masterdir"
+          MASTERDIR="masterdir-${TARGET_ARCH}"
 
           # Копируем srcpkgs
           cp -r /work/srcpkgs/* srcpkgs/ 2>/dev/null || true
 
-          # Запускаем сборку ВНУТРИ chroot — НИКАКОГО unshare
+          # Запускаем сборку ВНУТРИ chroot
           chroot "$MASTERDIR" /bin/sh -c "
             export HOME=/home/builder
             export USER=builder
@@ -96,11 +102,10 @@ jobs:
             '
           "
 
-          # Проверяем результат
           if [ $? -eq 0 ]; then
-            echo "✅ Все пакеты успешно собраны"
+            echo "✅ Сборка завершена"
           else
-            echo "❌ Ошибка при сборке"
+            echo "❌ Ошибка сборки"
             exit 1
           fi
           
