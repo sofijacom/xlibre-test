@@ -47,16 +47,14 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:    
-      - name: 🔒 Block /void-packages with tmpfs
+      - name: 🐳 Prep container
         run: |
-          echo "🔒 Blocking /void-packages to prevent exec conflicts"
+          echo "🔧 Blocking /void-packages to prevent exec conflicts"
           sudo mkdir -p /tmp/empty-dir
           sudo mount --bind /tmp/empty-dir /void-packages
           sudo mount --make-private /void-packages
           echo "✅ /void-packages is now a blocked bind-mount"
 
-      - name: 🐳 Prep container
-        run: |
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
