@@ -1,5 +1,4 @@
 # Template file for 'xlibre-xserver'
-
 pkgname=xlibre-xserver
 version=25.2.1
 revision=1
@@ -147,4 +146,3 @@ xlibre-xserver-devel_package() {
          vmove usr/share/aclocal
      }
  }
-
