@@ -116,10 +116,17 @@ jobs:
 
           echo "==> Installing cross compiler: $pkg"
           # Важно: используем --no-confirm, чтобы не ждать ввода
-          xbps-install -y --no-confirm "$pkg" || {
+          xbps-install -y "$pkg" || {
             echo "ERROR: Could not install $pkg. Check repo repodata!"
             exit 1
           }
+
+          # Проверка: убедимся, что компилятор реально появился
+          if [ "$ARCH" = "aarch64" ]; then
+            which aarch64-linux-gnu-gcc && echo "✅ GCC found: $(aarch64-linux-gnu-gcc --version | head -n1)"
+          elif [ "$ARCH" = "aarch64-musl" ]; then
+            which aarch64-musl-linux-musl-gcc && echo "✅ MUSL GCC found: $(aarch64-musl-linux-musl-gcc --version | head -n1)"
+          fi
 
       - name: Checkout this repo
         run: |
@@ -245,10 +252,17 @@ jobs:
 
           echo "==> Installing cross compiler: $pkg"
           # Важно: используем --no-confirm, чтобы не ждать ввода
-          xbps-install -y --no-confirm "$pkg" || {
+          xbps-install -y "$pkg" || {
             echo "ERROR: Could not install $pkg. Check repo repodata!"
             exit 1
           }
+
+          # Проверка: убедимся, что компилятор реально появился
+          if [ "$ARCH" = "aarch64" ]; then
+            which aarch64-linux-gnu-gcc && echo "✅ GCC found: $(aarch64-linux-gnu-gcc --version | head -n1)"
+          elif [ "$ARCH" = "aarch64-musl" ]; then
+            which aarch64-musl-linux-musl-gcc && echo "✅ MUSL GCC found: $(aarch64-musl-linux-musl-gcc --version | head -n1)"
+          fi
 
       - name: Prepare masterdir
         run: |
