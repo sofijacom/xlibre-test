@@ -47,12 +47,13 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:    
-      - name: 🛑 Remove /void-packages if exists
+      - name: 🔒 Block /void-packages with tmpfs
         run: |
-          if [ -d "/void-packages" ]; then
-            echo "⚠️ /void-packages found — removing to avoid exec conflicts"
-            sudo rm -rf /void-packages
-          fi
+          echo "🔒 Blocking /void-packages to prevent exec conflicts"
+          sudo mkdir -p /tmp/empty-dir
+          sudo mount --bind /tmp/empty-dir /void-packages
+          sudo mount --make-private /void-packages
+          echo "✅ /void-packages is now a blocked bind-mount"
 
       - name: 🐳 Prep container
         run: |
@@ -78,7 +79,7 @@ jobs:
           mkdir -p /home/builder/void-packages
           cp -r /tmp/void-packages-src/. /home/builder/void-packages/
           chown -R builder:builder /home/builder/void-packages
-          echo "✅ void-packages (with .git) moved to /home/builder/void-packages"
+          echo "✅ void-packages moved to /home/builder/void-packages"
 
       - name: 📋 Identify changes to build
         working-directory: /home/builder/void-packages
