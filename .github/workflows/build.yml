@@ -1,155 +1,80 @@
 name: "🏗️ Build Latest Packages"
-
-env:
-  TAG: workflow-${{ github.run_number }}
-  SHA: ${{ github.sha }}
-  
+ 
 on:
   push:
-    branches: [main]
-    paths: [srcpkgs/**]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build xlibre
     runs-on: ubuntu-latest
-
     container:
       image: ghcr.io/void-linux/void-glibc-full:20250227R1
       options: --platform linux/amd64 --privileged
 
-    strategy:
-      matrix:
-        arch: [ x86_64 ]  # Для начала — только glibc
-
     env:
-      TARGET_ARCH: "${{ matrix.arch }}"
+      TARGET_ARCH: x86_64
 
     steps:
-      - name: 🔧 Подготовка системы
+      - name: 🔧 Подготовка
         run: |
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf
           xbps-install -Syu xbps && xbps-install -yu
-          xbps-install -y sudo bash curl grep jq git zip unzip github-cli xtools
+          xbps-install -y sudo git bash coreutils
           useradd -m -G xbuilder builder -s /bin/bash
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-          echo "✅ Система готова"
 
       - name: 🌐 Клонируем void-packages
         run: |
           git clone --depth=1 https://github.com/void-linux/void-packages.git /home/builder/void-packages
           chown -R builder:xbuilder /home/builder/void-packages
 
-      - name: 📥 Клонируем мой репозиторий
-        run: |
-          git clone --depth=1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" /work
-          chown -R builder:xbuilder /work
-
-
       - name: 📦 binary-bootstrap
         run: |
           cd /home/builder/void-packages
           sudo -Eu builder \
-          XBPS_NO_UNSHARE=1 \
-          ./xbps-src -a x86_64 -A x86_64 binary-bootstrap
+            XBPS_NO_UNSHARE=1 \
+            ./xbps-src -a "$TARGET_ARCH" -A "$TARGET_ARCH" binary-bootstrap
+          echo "✅ base-chroot установлен"
 
-          # Проверяем, что masterdir создался
-          if [ -d "masterdir-x86_64/usr" ]; then
-          echo "✅ base-chroot подтверждён"
-          else
-          echo "❌ base-chroot не установлен"
-          exit 1
-          fi
-
-      - name: 📝 Читаем список пакетов
-        id: packages
+      - name: 🧪 Добавляем hello
         run: |
-          if [ -f /work/srcpkgs-to-build.txt ]; then
-            echo "list=$(cat /work/srcpkgs-to-build.txt | tr '\n' ' ')" >> $GITHUB_OUTPUT
-          else
-            echo "list=hello" >> $GITHUB_OUTPUT
-          fi
+          cd /home/builder/void-packages
+          mkdir -p srcpkgs/hello
+          cat > srcpkgs/hello/template << 'EOF'
+          pkgname=hello
+          version=2.12
+          revision=1
+          build_style=gnu-configure
+          short_desc="GNU Hello, the classic hello world program"
+          maintainer="voidlinux@voidlinux.org"
+          license="GPL-3.0-or-later"
+          homepage="https://www.gnu.org/software/hello/"
+          distfiles="https://ftp.gnu.org/gnu/hello/hello-${version}.tar.gz"
+          checksum=64c9d4174ee312653359837626c7701a400959c9429195912e70f883168996f7
+          EOF
+          chown -R builder:xbuilder srcpkgs/hello
 
-      # 🚀 КЛЮЧЕВОЙ ШАГ: СБОРКА ТОЛЬКО ВНУТРИ chroot
-      - name: 🚀 Сборка внутри chroot
+      - name: 🚀 Сборка ВНУТРИ chroot
         run: |
           cd /home/builder/void-packages
           MASTERDIR="masterdir-${TARGET_ARCH}"
 
-          # Копируем srcpkgs
-          cp -r /work/srcpkgs/* srcpkgs/ 2>/dev/null || true
-
-          # Запускаем сборку ВНУТРИ chroot — НИКАКОГО unshare
           chroot "$MASTERDIR" /bin/sh -c "
-            export HOME=/home/builder
-            export USER=builder
             export XBPS_ALLOW_CHROOT_BREAKOUT=1
             cd /void-packages
             su - builder -c '
-              for pkg in ${{ steps.packages.outputs.list }}; do
-                echo \"🔧 Собираем \$pkg\"
-                ./xbps-src -a $TARGET_ARCH pkg \"\$pkg\" || exit 1
-                echo \"✅ \$pkg собран\"
-              done
+              ./xbps-src -a x86_64 pkg hello
             '
           "
 
-          if [ $? -eq 0 ]; then
-            echo "✅ Сборка завершена"
-          else
-            echo "❌ Ошибка сборки"
-            exit 1
-          fi
-          
-      - name: Clean & sign
-        working-directory: /home/builder/void-packages/hostdir/binpkgs
-        env:
-          PRIVKEY: ${{ secrets.PRIV_KEY }}
-          XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
+      - name: 🗃️ Проверяем результат
         run: |
-          sudo -Eu builder xbps-rindex --remove-obsoletes ${PWD}
-          printf "%s\n" "${PRIVKEY}" > key.pem
-          sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose ${PWD}
-          sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose ${PWD}/*.xbps
-          sudo -Eu builder rm -f key.pem
-          sudo -Eu builder xbps-rindex --clean ${PWD}
+          find /home/builder/void-packages/hostdir/binpkgs -name "*.xbps" -ls
 
-      - name: checksum
-        working-directory: /home/builder/void-packages/hostdir/binpkgs
-        run: |
-          rm -rf *.sha256sum *.sha512sum
-          
-          # Only run the loop if there are actually files ending in .xbps
-          count=$(ls -1 *.xbps 2>/dev/null | wc -l)
-          if [ "$count" != 0 ]; then
-            for file in *.xbps; do
-              sha256sum "${file}" | cut -d ' ' -f 1 > "${file}.sha256sum"
-              sha512sum "${file}" | cut -d ' ' -f 1 > "${file}.sha512sum"
-            done
-          else
-            echo "❌ No packages found to checksum."
-          fi
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v7
+      - name: 📦 Артефакт
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.arch }}-repodata
-          path: /home/builder/void-packages/hostdir/binpkgs
-
-      - name: short sha
-        run: |
-          printf "SHORT_SHA=$(git rev-parse --short ${SHA})" >> $GITHUB_ENV
-
-      - name: release
-        uses: softprops/action-gh-release@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          name: ${{ env.SHORT_SHA }}
-          tag_name: ${{ env.TAG }}
-          files: |
-            /home/builder/void-packages/hostdir/binpkgs/**/*.xbps
-            /home/builder/void-packages/hostdir/binpkgs/**/*.sig2
-            /home/builder/void-packages/hostdir/binpkgs/**/*repodata
+          name: binpkgs
+          path: /home/builder/void-packages/hostdir/binpkgs/**/*.xbps
