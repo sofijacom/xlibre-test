@@ -127,8 +127,8 @@ jobs:
 
           if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
             echo "🔧 Injecting qemu-aarch64-static into masterdir"
-            mkdir -p /home/builder/void-packages/masterdir-${{ matrix.config.arch }}/usr/bin
-            cp /usr/bin/qemu-aarch64-static /home/builder/void-packages/masterdir-${{ matrix.config.arch }}/usr/bin/
+            mkdir -p masterdir-${{ matrix.config.arch }}/usr/bin
+            cp /usr/bin/qemu-aarch64-static masterdir-${{ matrix.config.arch }}/usr/bin/
           fi
 
       - name: 📦 build pkgs
