@@ -6,8 +6,8 @@ env:
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+    paths: [srcpkgs/**]
   workflow_dispatch:
 
 concurrency:
