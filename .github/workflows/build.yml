@@ -104,20 +104,28 @@ jobs:
           find srcpkgs -name template -type f -exec chmod +x {} \;
 
       - name: ✅ Prepare masterdir
-        working-directory: /home/builder/void-packages
+        working-directory: /tmp/void-packages
         run: |
-          sudo -Eu builder \
-            XBPS_NO_UNSHARE=1 \
-            /home/builder/void-packages/xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
+          if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
+            echo "🔧 Bootstrapping masterdir for $ARCH using -a (cross)"
+            sudo -Eu builder \
+              XBPS_NO_UNSHARE=1 \
+              /tmp/void-packages/xbps-src -m masterdir-${{ matrix.config.arch }} -a ${{ matrix.config.arch }} binary-bootstrap
+          else
+            echo "🔧 Bootstrapping masterdir for $ARCH using -A (native)"
+            sudo -Eu builder \
+              XBPS_NO_UNSHARE=1 \
+              /tmp/void-packages/xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
+          fi
 
           if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
             echo "🔧 Injecting qemu-aarch64-static into masterdir"
-            mkdir -p masterdir-${{ matrix.config.arch }}/usr/bin
-            cp /usr/bin/qemu-aarch64-static masterdir-${{ matrix.config.arch }}/usr/bin/
+            mkdir -p /tmp/void-packages/masterdir-${{ matrix.config.arch }}/usr/bin
+            cp /usr/bin/qemu-aarch64-static /tmp/void-packages/masterdir-${{ matrix.config.arch }}/usr/bin/
           fi
 
       - name: 📦 build pkgs
-        working-directory: /home/builder/void-packages
+        working-directory: /tmp/void-packages
         run: |
           pkgs=$(cat /tmp/templates)
 
@@ -126,20 +134,20 @@ jobs:
             if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
               sudo -Eu builder \
                 XBPS_ALLOW_CHROOT_BREAKOUT=1 \
-                bash /home/builder/void-packages/xbps-src \
+                bash /tmp/void-packages/xbps-src \
                   -m masterdir-${{ matrix.config.arch }} \
-                  -A ${{ matrix.config.arch }} \
+                  -a ${{ matrix.config.arch }} \
                   pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
             else
               sudo -Eu builder \
                 XBPS_NO_UNSHARE=1 \
-                bash /home/builder/void-packages/xbps-src \
+                bash /tmp/void-packages/xbps-src \
                   -m masterdir-${{ matrix.config.arch }} \
                   -A ${{ matrix.config.arch }} \
                   pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
             fi
           done
-
+          
       - name: 🧾 Clean & sign
         working-directory: /home/builder/void-packages/hostdir/binpkgs
         env:
