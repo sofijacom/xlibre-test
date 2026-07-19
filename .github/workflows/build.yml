@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build Hyprland
+    name: Build Xlibre
     runs-on: ubuntu-latest
 
     container:
@@ -41,7 +41,7 @@ jobs:
           sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf
           xbps-install -Syu xbps && xbps-install -yu
           xbps-install -y sudo bash git xtools coreutils
-          useradd -m -G xbuilder builder -s /bin/bash
+          useradd -m -G xbuilder builder
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
           echo "✅ Система готова"
 
