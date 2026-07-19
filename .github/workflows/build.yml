@@ -189,36 +189,6 @@ jobs:
       # ЭТА ЧАСТЬ РЕШАЕТ ОШИБКУ: Could not find package 'cross-aarch64-linux-gnu'
       # ------------------------------------------------------------------
 
-      - name: 🔧 Install correct cross compilers
-        run: |
-          case "$ARCH" in
-            aarch64)
-              pkg="cross-aarch64-linux-gnu"
-              ;;
-            aarch64-musl)
-              pkg="cross-aarch64-linux-musl"
-              ;;
-            armv7l)
-              pkg="cross-armv7l-linux-gnueabihf"
-              ;;
-            *)
-              echo "Native arch, skipping cross compiler"
-              exit 0
-              ;;
-          esac
-
-          echo "==> Installing: $pkg"
-          xbps-install -y "$pkg"
-
-      # 👇 ЭТОТ ШАГ КРИТИЧЕСКИ ВАЖЕН 👇
-
-      - name: Prepare masterdir
-        run: |
-          cd /home/builder/void-packages
-          sudo -Eu builder common/travis/set_mirror.sh
-          sudo -Eu builder common/travis/prepare.sh
-          common/travis/fetch-xtools.sh
-
       - name: Build
         id: build_step
         run: |
@@ -272,46 +242,84 @@ jobs:
           echo "built=$built" >> "$GITHUB_OUTPUT"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
 
-      - name: Clean & sign
-        working-directory: ./hostdir/binpkgs
+      - name: 🧾 Clean & sign
+        run: |
+          # Используем абсолютный путь, чтобы не зависеть от текущей директории
+          BINPKGS_DIR="/home/builder/void-packages/hostdir/binpkgs"
+
+          if [ ! -d "$BINPKGS_DIR" ]; then
+            echo "❌ Directory $BINPKGS_DIR does not exist"
+            exit 1
+          fi
+
+          cd "$BINPKGS_DIR" || exit 1
+
+          count=$(ls *.xbps 2>/dev/null | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "❌ No .xbps packages found to sign. Build failed or no changes."
+            exit 1
+          fi
+
+          # Очищаем устаревшие записи
+          sudo -Eu builder xbps-rindex --remove-obsoletes .
+
+          printf "%s\n" "${PRIVKEY}" > key.pem
+
+          # Подписываем репозиторий
+          sudo -Eu builder xbps-rindex \
+            --privkey key.pem \
+            --sign \
+            --signedby "${REPO_NAME}-github-actions" \
+            --verbose .
+
+          # Подписываем сами пакеты
+          sudo -Eu builder xbps-rindex \
+            --privkey key.pem \
+            --sign-pkg \
+            --verbose *.xbps
+
+          sudo -Eu builder rm -f key.pem
+          sudo -Eu builder xbps-rindex --clean .
         env:
           PRIVKEY: ${{ secrets.PRIV_KEY }}
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
-        run: |
-          sudo -Eu builder xbps-rindex --remove-obsoletes ${PWD}
-          printf "%s\n" "${PRIVKEY}" > key.pem
-          sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose ${PWD}
-          sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose ${PWD}/*.xbps
-          sudo -Eu builder rm -f key.pem
-          sudo -Eu builder xbps-rindex --clean ${PWD}
+          REPO_NAME: ${{ github.event.repository.name }}
 
-      - name: checksum
-        working-directory: ./hostdir/binpkgs
+      - name: 🔢 Checksum
         run: |
+          BINPKGS_DIR="/home/builder/void-packages/hostdir/binpkgs"
+
+          if [ ! -d "$BINPKGS_DIR" ]; then
+            echo "❌ Checksum: Directory $BINPKGS_DIR not found"
+            exit 1
+          fi
+
+          cd "$BINPKGS_DIR" || exit 1
+
           rm -rf *.sha256sum *.sha512sum
 
-          # Only run the loop if there are actually files ending in .xbps
           count=$(ls -1 *.xbps 2>/dev/null | wc -l)
           if [ "$count" != 0 ]; then
             for file in *.xbps; do
               sha256sum "${file}" | cut -d ' ' -f 1 > "${file}.sha256sum"
               sha512sum "${file}" | cut -d ' ' -f 1 > "${file}.sha512sum"
             done
+            echo "✅ Checksum generated for $count packages"
           else
-            echo "❌ No packages found to checksum."
+            echo "⚠️ No packages found to checksum."
           fi
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v7
+      - name: 📤 Upload Artifact
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.config.arch }}-repodata
-          path: ./hostdir/binpkgs
+          path: /home/builder/void-packages/hostdir/binpkgs
 
-      - name: short sha
+      - name: 🏷️ Short SHA
         run: |
           printf "SHORT_SHA=$(git rev-parse --short ${SHA})" >> $GITHUB_ENV
 
-      - name: release
+      - name: 🚀 Release
         uses: softprops/action-gh-release@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -323,4 +331,5 @@ jobs:
             /home/builder/void-packages/hostdir/binpkgs/*.sig2
             /home/builder/void-packages/hostdir/binpkgs/*repodata
           overwrite: true
+
           
