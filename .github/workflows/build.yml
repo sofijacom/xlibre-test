@@ -56,6 +56,7 @@ jobs:
           useradd -G xbuilder -M builder -s $(which bash)
 
           echo "🔧 Blocking /void-packages to prevent exec conflicts"
+          mkdir -p /void-packages
           mount --bind /tmp /void-packages
           mount --make-private /void-packages
           echo "✅ /void-packages is now blocked (bound to /tmp)"
