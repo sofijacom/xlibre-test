@@ -47,6 +47,7 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:    
+      # 🔥 УДАЛЁН actions/checkout — мы клонируем сами
       - name: 🐳 Prep container
         run: |
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
@@ -55,8 +56,11 @@ jobs:
           env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl git github-cli xtools coreutils qemu-user-static
           useradd -G xbuilder -M builder -s $(which bash)
 
-      - name: 🔎 Clone void-packages (avoid /void-packages)
+      - name: 🔎 Clone void-packages (to /tmp/void-src, NOT /void-packages)
         run: |
+          # Удаляем возможный /void-packages, если он уже есть
+          rm -rf /void-packages
+          # Клонируем в /tmp, чтобы не было конфликта с корнем
           git clone --depth=1 https://github.com/void-linux/void-packages.git /tmp/void-src
           cd /tmp/void-src
           git config --global user.name "github-actions[bot]"
