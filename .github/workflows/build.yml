@@ -1,8 +1,8 @@
 name: "🏗️ Build Latest Packages"
 
-#env:
+env:
 #  TAG: workflow-${{ github.run_number }}
-#  SHA: ${{ github.sha }}
+  SHA: ${{ github.sha }}
 
 on:
   push:
