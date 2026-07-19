@@ -135,8 +135,9 @@ jobs:
           # Копируем шаблоны пакетов
           cp -rv extra/srcpkgs/* /home/builder/void-packages/srcpkgs/
 
-          # Копируем hooks и common (чтобы подхватился 00-cross-host.sh и др.)
-          cp -rv extra/common/* /home/builder/void-packages/common/ 2>/dev/null || true
+          # Копируем hooks (только файлы, сохраняя структуру папок)
+          mkdir -p /home/builder/void-packages/common/hooks/pre-configure
+          cp -v extra/common/hooks/pre-configure/* /home/builder/void-packages/common/hooks/pre-configure/ 2>/dev/null || true
 
           SHLIBS_FILE="/home/builder/void-packages/common/shlibs"
           APPEND_FILE="extra/shlibs_append"
@@ -162,6 +163,16 @@ jobs:
               fi
             done < "$APPEND_FILE"
           fi
+
+      # 👇 ЭТОТ ШАГ КРИТИЧЕСКИ ВАЖЕН 👇
+      - name: 🔐 Fix hook permissions (MUST HAVE)
+        run: |
+          echo "==> ensuring hooks are executable..."
+          # Находим все .sh файлы в папках hooks и делаем их исполняемыми
+          find /home/builder/void-packages/common/hooks -type f -name "*.sh" -print -exec chmod +x {} \;
+
+          # Проверка: выводим список, чтобы видеть в логах, что права есть
+          ls -la /home/builder/void-packages/common/hooks/pre-configure/
 
       - name: Prepare masterdir
         run: |
