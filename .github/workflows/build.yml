@@ -44,15 +44,7 @@ jobs:
         REPO_NAME: "${{ github.event.repository.name }}"
     if: ${{ github.ref == 'refs/heads/main' }}
 
-    steps:
-      - name: Cache masterdir
-        uses: actions/cache@v5
-        with:
-          path: void-packages/masterdir-${{ matrix.config.arch }}
-          key: masterdir-${{ matrix.config.arch }}-${{ hashFiles('void-packages/common/xbps-src/shlibs') }}
-          restore-keys: |
-            masterdir-${{ matrix.config.arch }}-
-         
+    steps:    
       - name: Prep container
         run: |
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
