@@ -49,17 +49,16 @@ jobs:
     steps:    
       - name: 🐳 Prep container
         run: |
-          echo "🔧 Blocking /void-packages to prevent exec conflicts"
-          sudo mkdir -p /tmp/empty-dir
-          sudo mount --bind /tmp/empty-dir /void-packages
-          sudo mount --make-private /void-packages
-          echo "✅ /void-packages is now a blocked bind-mount"
-
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
           env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl git github-cli xtools coreutils qemu-user-static
           useradd -G xbuilder -M builder -s $(which bash)
+
+          echo "🔧 Blocking /void-packages to prevent exec conflicts"
+          mount --bind /tmp /void-packages
+          mount --make-private /void-packages
+          echo "✅ /void-packages is now blocked (bound to /tmp)"
 
       - name: 🔎 Clone void-packages
         run: |
