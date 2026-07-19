@@ -35,32 +35,25 @@ jobs:
       XBPS_NO_UNSHARE: "1"
 
     steps:
-      - name: 🔧 Prepare system and create builder
+      - name: 🔧 Prepare system
         run: |
-          # Копируем конфиги репозиториев
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf
-
-          # Обновляем и ставим инструменты
           xbps-install -Syu xbps && xbps-install -yu
-          xbps-install -y sudo bash git xtools zip unzip jq coreutils
-
-          # Создаём пользователя
+          xbps-install -y sudo bash git xtools coreutils
           useradd -m -G xbuilder builder -s /bin/bash
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-          echo "✅ Система готова, пользователь builder создан"
+          echo "✅ Система готова"
 
       - name: 🌐 Clone void-packages
         run: |
           git clone --depth=1 https://github.com/void-linux/void-packages.git /home/builder/void-packages
           chown -R builder:xbuilder /home/builder/void-packages
-          echo "✅ void-packages склонирован"
 
       - name: 📥 Clone my repo
         run: |
           git clone --depth=1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" /work
           chown -R builder:xbuilder /work
-          echo "✅ Мой репозиторий склонирован"
 
       - name: 📦 binary-bootstrap
         run: |
@@ -70,27 +63,25 @@ jobs:
             ./xbps-src -a "$TARGET_ARCH" -A "$TARGET_ARCH" binary-bootstrap
           echo "✅ base-chroot установлен"
 
-      - name: 📥 Copy srcpkgs
-        run: |
-          # Копируем пакеты для сборки
-          cp -r /work/srcpkgs/* /home/builder/void-packages/srcpkgs/ 2>/dev/null || true
-          echo "✅ srcpkgs скопированы"
-
       - name: 📝 Read packages to build
         id: packages
         run: |
-          if [ -f /work/srcpkgs-to-build.txt ] && [ -s /work/srcpkgs-to-build.txt ]; then
-            echo "list=$(cat /work/srcpkgs-to-build.txt | xargs)" >> $GITHUB_OUTPUT
+          if [ -f /work/srcpkgs-to-build.txt ]; then
+            echo "list=$(cat /work/srcpkgs-to-build.txt)" >> $GITHUB_OUTPUT
           else
-            echo "list=hyprland" >> $GITHUB_OUTPUT  # fallback
+            echo "list=hyprland" >> $GITHUB_OUTPUT
           fi
 
-      - name: 🚀 Build packages inside chroot
+      # 🚀 КЛЮЧЕВОЙ ШАГ: ВСЁ, ЧТО ДАЛЬШЕ — ВНУТРИ chroot
+      - name: 🚀 Build inside chroot
         run: |
           cd /home/builder/void-packages
           MASTERDIR="$PWD/masterdir"
 
-          # Запускаем сборку ВНУТРИ chroot — без unshare
+          # Копируем srcpkgs
+          cp -r /work/srcpkgs/* srcpkgs/ 2>/dev/null || true
+
+          # Запускаем сборку ВНУТРИ chroot
           chroot "$MASTERDIR" /bin/sh -c "
             export HOME=/home/builder
             export USER=builder
@@ -98,7 +89,7 @@ jobs:
             cd /void-packages
             su - builder -c '
               for pkg in ${{ steps.packages.outputs.list }}; do
-                echo \"🔧 Собираем: \$pkg\"
+                echo \"🔧 Собираем \$pkg\"
                 ./xbps-src -a $TARGET_ARCH pkg \"\$pkg\" || exit 1
                 echo \"✅ \$pkg собран\"
               done
@@ -106,14 +97,14 @@ jobs:
           "
 
           if [ $? -eq 0 ]; then
-            echo "✅ Все пакеты успешно собраны"
+            echo "✅ Сборка завершена"
           else
-            echo "❌ Ошибка при сборке"
+            echo "❌ Ошибка сборки"
             exit 1
           fi
 
       - name: Clean & sign
-        working-directory: void-packages/hostdir/binpkgs
+        working-directory: /home/builder/void-packages/hostdir/binpkgs
         env:
           PRIVKEY: ${{ secrets.PRIV_KEY }}
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
@@ -126,7 +117,7 @@ jobs:
           sudo -Eu builder xbps-rindex --clean ${PWD}
 
       - name: checksum
-        working-directory: void-packages/hostdir/binpkgs
+        working-directory: /home/builder/void-packages/hostdir/binpkgs
         run: |
           rm -rf *.sha256sum *.sha512sum
           
@@ -145,7 +136,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.arch }}-repodata
-          path: void-packages/hostdir/binpkgs
+          path: /home/builder/void-packages/hostdir/binpkgs
 
       - name: short sha
         run: |
@@ -159,6 +150,6 @@ jobs:
           name: ${{ env.SHA }}
           tag_name: ${{ env.TAG }}
           files: |
-            void-packages/hostdir/binpkgs/*.xbps
-            void-packages/hostdir/binpkgs/*.sig2
-            void-packages/hostdir/binpkgs/*repodata
+            /home/builder/void-packages/hostdir/binpkgs/**/*.xbps
+            /home/builder/void-packages/hostdir/binpkgs/**/*.sig2
+            /home/builder/void-packages/hostdir/binpkgs/**/*repodata
