@@ -131,13 +131,18 @@ jobs:
       - name: Merge templates and edit shlibs
         run: |
           echo "==> copying templates..."
+          # Копируем шаблоны пакетов         
           cp -rv extra/srcpkgs/* /home/builder/void-packages/srcpkgs/
+
+          # Копируем hooks и common (чтобы подхватился 00-cross-host.sh и др.)
+          cp -rv extra/common/* /home/builder/void-packages/common/ 2>/dev/null || true
 
           SHLIBS_FILE="/home/builder/void-packages/common/shlibs"
           APPEND_FILE="extra/shlibs_append"
           REMOVE_FILE="extra/shlibs_remove"
 
           echo "==> updating common/shlibs..."
+          # Удаляем строки, если есть файл удаления          
           if [ -f "$REMOVE_FILE" ]; then
             while IFS= read -r line; do
               [ -z "$line" ] && continue
@@ -145,7 +150,8 @@ jobs:
               echo "   - removed: $line"
             done < "$REMOVE_FILE"
           fi
-
+          
+          # Добавляем строки, если есть файл добавления
           if [ -f "$APPEND_FILE" ]; then
             while IFS= read -r line; do
               [ -z "$line" ] && continue
@@ -248,7 +254,7 @@ jobs:
           fi
 
       - name: 📤 Upload Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.config.arch }}-repodata
           path: /home/builder/void-packages/hostdir/binpkgs
@@ -269,5 +275,4 @@ jobs:
             /home/builder/void-packages/hostdir/binpkgs/*.sig2
             /home/builder/void-packages/hostdir/binpkgs/*repodata
           overwrite: true
-
-
+          
