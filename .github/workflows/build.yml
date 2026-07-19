@@ -36,11 +36,11 @@ jobs:
       fail-fast: false
       matrix:
         config: &build_matrix
-          # - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
+          - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
           - { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
           - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
           # - { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
-          # - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
+          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
           # - { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
 
@@ -103,28 +103,6 @@ jobs:
           xbps-install -y "$pkg"
 
       # 👇 ЭТОТ ШАГ КРИТИЧЕСКИ ВАЖЕН 👇
-      - name: 🗺 Add cross-compiler paths to PATH
-        run: |
-          case "$ARCH" in
-            aarch64)
-              # Для glibc
-              export PATH="/usr/lib/cross-aarch64-unknown-linux-gnu/bin:$PATH"
-              export CC="aarch64-unknown-linux-gnu-gcc"
-              ;;
-            aarch64-musl)
-              # Для musl — именно твой случай
-              export PATH="/usr/lib/cross-aarch64-musl-linux-musl/bin:$PATH"
-              export CC="aarch64-musl-linux-musl-gcc"
-              ;;
-            armv7l)
-              export PATH="/usr/lib/cross-armv7l-unknown-linux-gnueabihf/bin:$PATH"
-              export CC="armv7l-unknown-linux-gnueabihf-gcc"
-              ;;
-            *)
-              echo "No cross-compiler path needed"
-              ;;
-          esac
-          echo "✅ CC and HOST_TRIPLET set for ARCH=$ARCH"
 
       - name: Checkout this repo
         run: |
@@ -233,28 +211,6 @@ jobs:
           xbps-install -y "$pkg"
 
       # 👇 ЭТОТ ШАГ КРИТИЧЕСКИ ВАЖЕН 👇
-      - name: 🗺 Add cross-compiler paths to PATH
-        run: |
-          case "$ARCH" in
-            aarch64)
-              # Для glibc
-              export PATH="/usr/lib/cross-aarch64-unknown-linux-gnu/bin:$PATH"
-              export CC="aarch64-unknown-linux-gnu-gcc"
-              ;;
-            aarch64-musl)
-              # Для musl — именно твой случай
-              export PATH="/usr/lib/cross-aarch64-musl-linux-musl/bin:$PATH"
-              export CC="aarch64-musl-linux-musl-gcc"
-              ;;
-            armv7l)
-              export PATH="/usr/lib/cross-armv7l-unknown-linux-gnueabihf/bin:$PATH"
-              export CC="armv7l-unknown-linux-gnueabihf-gcc"
-              ;;
-            *)
-              echo "No cross-compiler path needed"
-              ;;
-          esac
-          echo "✅ CC and HOST_TRIPLET set for ARCH=$ARCH"
 
       - name: Prepare masterdir
         run: |
@@ -279,65 +235,31 @@ jobs:
             exit 0
           fi
 
-          # Определяем CC и HOST_TRIPLET прямо здесь, в том же шаге, где идёт сборка
-          case "$ARCH" in
-            aarch64)
-              CC_VAL="aarch64-unknown-linux-gnu-gcc"
-              HOST_TRIPLET="aarch64-unknown-linux-gnu"
-              ;;
-            aarch64-musl)
-              # Именно этот префикс даёт пакет cross-aarch64-linux-musl
-              CC_VAL="aarch64-musl-linux-musl-gcc"
-              HOST_TRIPLET="aarch64-musl-linux-musl"
-              ;;
-            armv7l)
-              CC_VAL="armv7l-unknown-linux-gnueabihf-gcc"
-              HOST_TRIPLET="armv7l-unknown-linux-gnueabihf"
-              ;;
-            *)
-              # Нативная сборка — CC не переопределяем
-              CC_VAL=""
-              HOST_TRIPLET=""
-              ;;
-          esac
-
+          # Если целевая архитектура отличается от хоста, xbps-src сам поймёт, что это кросс-сборка
           if [ "$BOOTSTRAP" != "$ARCH" ]; then
-            arch="-a $ARCH"
+            arch_flag="-a $ARCH"
           else
-            arch=""
+            arch_flag=""
           fi
 
           if [ "$TEST" = 1 ]; then
-            test="-Q"
+            test_flag="-Q"
           else
-            test=""
+            test_flag=""
           fi
 
-          PKGS=$(sudo -Eu builder ./xbps-src $test sort-dependencies $changed)
+          PKGS=$(sudo -Eu builder ./xbps-src $test_flag sort-dependencies $changed)
           built=""
           failed=""
 
           for pkg in ${PKGS}; do
-            if [ -n "$CC_VAL" ]; then
-              # ВАЖНО: передаём CC и CFLAGS напрямую в xbps-src
-              if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch $test pkg \
-                  CC="$CC_VAL" \
-                  CFLAGS="-O2" \
-                  HOST_TRIPLET="$HOST_TRIPLET" \
-                  "${pkg}"; then
-                built="$built $pkg"
-              else
-                echo "!! build failed for ${pkg}"
-                failed="$failed $pkg"
-              fi
+            # ВАЖНО: никаких CC=... здесь не передаём.
+            # xbps-src сам выставит CC, CXX, HOST_TRIPLET, если видит кросс-сборку
+            if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch_flag $test_flag pkg "${pkg}"; then
+              built="$built $pkg"
             else
-              # Нативная сборка — без переопределения компилятора
-              if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch $test pkg "${pkg}"; then
-                built="$built $pkg"
-              else
-                echo "!! build failed for ${pkg}"
-                failed="$failed $pkg"
-              fi
+              echo "!! build failed for ${pkg}"
+              failed="$failed $pkg"
             fi
           done
 
@@ -350,23 +272,12 @@ jobs:
           echo "built=$built" >> "$GITHUB_OUTPUT"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
 
-      - name: 🧾 Clean & sign
-        working-directory: /home/builder/void-packages/hostdir/binpkgs
+      - name: Clean & sign
+        working-directory: ./hostdir/binpkgs
         env:
           PRIVKEY: ${{ secrets.PRIV_KEY }}
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
         run: |
-          if [ ! -d "/home/builder/void-packages/hostdir/binpkgs" ]; then
-            echo "❌ Directory /home/builder/void-packages/hostdir/binpkgs does not exist"
-            exit 1
-          fi
-
-          count=$(ls *.xbps 2>/dev/null | wc -l)
-          if [ "$count" -eq 0 ]; then
-            echo "❌ No .xbps packages found to sign. Build failed or no changes."
-            exit 1
-          fi
-
           sudo -Eu builder xbps-rindex --remove-obsoletes ${PWD}
           printf "%s\n" "${PRIVKEY}" > key.pem
           sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose ${PWD}
@@ -374,10 +285,12 @@ jobs:
           sudo -Eu builder rm -f key.pem
           sudo -Eu builder xbps-rindex --clean ${PWD}
 
-      - name: 🔢 checksum
-        working-directory: /home/builder/void-packages/hostdir/binpkgs
+      - name: checksum
+        working-directory: ./hostdir/binpkgs
         run: |
           rm -rf *.sha256sum *.sha512sum
+
+          # Only run the loop if there are actually files ending in .xbps
           count=$(ls -1 *.xbps 2>/dev/null | wc -l)
           if [ "$count" != 0 ]; then
             for file in *.xbps; do
@@ -388,17 +301,17 @@ jobs:
             echo "❌ No packages found to checksum."
           fi
 
-      - name: 📤 Upload Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.config.arch }}-repodata
-          path: /home/builder/void-packages/hostdir/binpkgs
+          path: ./hostdir/binpkgs
 
-      - name: 🏷️ short sha
+      - name: short sha
         run: |
           printf "SHORT_SHA=$(git rev-parse --short ${SHA})" >> $GITHUB_ENV
 
-      - name: 🚀 release
+      - name: release
         uses: softprops/action-gh-release@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
