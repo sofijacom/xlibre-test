@@ -1,176 +1,189 @@
 name: "🏗️ Build Latest Packages"
 
-env:
-  TAG: workflow-${{ github.run_number }}
-  SHA: ${{ github.sha }}
-
 on:
   push:
-    branches: [main]
-    paths: [srcpkgs/**]
+    branches:
+      - main
+    paths:
+      - 'srcpkgs/**'
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build:
-    name: Build📦 ${{ matrix.config.arch }}
+    name: Build packages
     runs-on: ubuntu-latest
-    permissions:
-      contents: write   
-
-    strategy:
-      fail-fast: false
-      matrix:
-        config:
-          - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
-          - { arch: i686,         host: i686,        libc: glibc, platform: linux/amd64, test: 1 }
-          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
-          - { arch: aarch64,      host: aarch64,     libc: glibc, platform: linux/amd64, test: 0 }
-          - { arch: aarch64-musl, host: aarch64-musl, libc: musl,  platform: linux/amd64, test: 0 }
-
     container:
-      image: ghcr.io/void-linux/void-glibc-full:20250616R1
-      options: --platform linux/amd64 --privileged
+      image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:20250616R1
+      options: --platform ${{ matrix.config.platform }} --privileged
       volumes:
         - /dev:/dev
       env:
-        TAG: '${{ env.TAG }}'
-        SHA: '${{ env.SHA }}'
         ARCH: '${{ matrix.config.arch }}'
-        XBPS_TARGET_ARCH: '${{ matrix.config.arch }}'
-        REPO_OWNER: "${{ github.repository_owner }}"
+        BOOTSTRAP: '${{ matrix.config.host }}'
+        TEST: '${{ matrix.config.test }}'
         REPO_NAME: "${{ github.event.repository.name }}"
+        SHA: "${{ github.sha }}"
+        TAG: "build-${{ github.run_number }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        config: &build_matrix
+          - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
+          - { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
+          - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
+          # - { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
+          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
+          # - { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
+          - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
 
-    if: ${{ github.ref == 'refs/heads/main' }}
+    permissions:
+      contents: write
 
-    steps:    
-      # 🔥 УДАЛЁН actions/checkout — мы клонируем сами
-      - name: 🐳 Prep container
+    steps:
+      - name: Prepare container
         run: |
+          # switch to repo-ci mirror
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
-          env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
-          env -u XBPS_TARGET_ARCH xbps-install -yu
-          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl git github-cli xtools coreutils qemu-user-static
-          useradd -G xbuilder -M builder -s $(which bash)
+          sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf
+          # install dependencies
+          xbps-install -Syu xbps && xbps-install -yu && xbps-install -y sudo bash curl grep git jq xz zip unzip github-cli xtools qemu-user-static
+          # create non-root user
+          useradd -G xbuilder -M builder -s /bin/bash
+          # prepare home
+          mkdir -p /home/builder
+          chown builder:builder /home/builder
 
-      - name: 🔎 Clone void-packages (to /tmp/void-src, NOT /void-packages)
+      - name: Checkout this repo
         run: |
-          # Удаляем возможный /void-packages, если он уже есть
-          rm -rf /void-packages
-          # Клонируем в /tmp, чтобы не было конфликта с корнем
-          git clone --depth=1 https://github.com/void-linux/void-packages.git /tmp/void-src
-          cd /tmp/void-src
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --global --add safe.directory "*"
-          git remote add -f sofijacom https://github.com/sofijacom/xlibre-test.git
-          git merge --no-commit --strategy-option=theirs --allow-unrelated-histories -Xignore-space-change sofijacom/main
+          git clone --depth 1 "https://github.com/${{ github.repository }}.git" extra
+          cd extra
+          # we need the previous revision to diff against
+          if [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            git fetch --no-tags origin "${{ github.event.before }}" --depth 1 || true
+          fi
+          git fetch --no-tags origin "${{ github.sha }}" --depth 1
+          git checkout --detach "${{ github.sha }}"
 
-      - name: 📁 Move to /home/builder/void-packages
+      - name: Determine changed templates
+        id: changed
         run: |
-          rm -rf /home/builder/void-packages
-          mkdir -p /home/builder/void-packages
-          cp -r /tmp/void-src/. /home/builder/void-packages/
-          chown -R builder:builder /home/builder/void-packages
-          echo "✅ void-packages moved to /home/builder/void-packages"
+          cd extra
 
-      - name: 📋 Identify changes to build
-        working-directory: /home/builder/void-packages
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          latest_name=$(gh release view --json tagName --jq '.tagName' --repo sofijacom/xlibre-test || echo "Initial Commit")
-          latest_sha=$(git rev-list --max-count=1 ${latest_name} 2>/dev/null || git rev-list --max-parents=0 sofijacom/main)
-          echo "Latest Tag Name: ${latest_name}"
-          echo "Latest Tag SHA: ${latest_sha}"
+          base="${{ github.event.before }}"
+          tip="${{ github.sha }}"
 
-          git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
-          | cut -d/ -f 2 | uniq | xargs sudo -Eu builder /home/builder/void-packages/xbps-src sort-dependencies | tee /tmp/templates
-
-      - name: 📋 Setup void-packages
-        working-directory: /home/builder/void-packages
-        run: |
-          mkdir -p etc
-          echo XBPS_BUILD_ENVIRONMENT=void-packages-ci >> etc/conf
-          echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
-          echo XBPS_CHROOT_CMD=uchroot >> etc/conf
-          echo 'XBPS_REPOSITORY=$PWD/hostdir/binpkgs' >> etc/conf
-          echo 'XBPS_DISTDIR=$PWD/hostdir/distfiles' >> etc/conf
-          echo 'XBPS_MASTERDIR_PKGS="$PWD/hostdir/binpkgs"' >> etc/conf
-
-      - name: ✅ Fix execute permissions
-        working-directory: /home/builder/void-packages
-        run: |
-          echo "🔧 Fixing execute permissions for xbps-src and templates"
-          chmod +x xbps-src
-          find srcpkgs -name template -type f -exec chmod +x {} \;
-
-      - name: ✅ Prepare masterdir
-        working-directory: /home/builder/void-packages
-        run: |
-          if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
-            echo "🔧 Bootstrapping masterdir for $ARCH using -a (cross)"
-            sudo -Eu builder \
-              XBPS_NO_UNSHARE=1 \
-              XBPS_SRC_HOME=/home/builder/void-packages \
-              bash /home/builder/void-packages/xbps-src -m masterdir-${{ matrix.config.arch }} -a ${{ matrix.config.arch }} binary-bootstrap
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            changed_pkgs=$(find srcpkgs -maxdepth 1 -mindepth 1 -type d -printf "%f\n" | tr '\n' ' ')
+            removed_pkgs=""
           else
-            echo "🔧 Bootstrapping masterdir for $ARCH using -A (native)"
-            sudo -Eu builder \
-              XBPS_NO_UNSHARE=1 \
-              XBPS_SRC_HOME=/home/builder/void-packages \
-              bash /home/builder/void-packages/xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
+            changed_pkgs=$(git diff --name-only "$base" "$tip" --diff-filter=AM -- 'srcpkgs/*/template' \
+              | cut -d/ -f2 \
+              | sort -u \
+              | tr '\n' ' ')
+            
+            removed_pkgs=$(git diff --name-status "$base" "$tip" -- 'srcpkgs/*/template' \
+              | awk '$1=="D"{print $2}' \
+              | cut -d/ -f2 \
+              | sort -u \
+              | tr '\n' ' ')
           fi
 
-          if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
-            echo "🔧 Injecting qemu-aarch64-static into masterdir"
-            mkdir -p /home/builder/void-packages/masterdir-${{ matrix.config.arch }}/usr/bin
-            cp /usr/bin/qemu-aarch64-static /home/builder/void-packages/masterdir-${{ matrix.config.arch }}/usr/bin/
-          fi
+          changed_pkgs="${changed_pkgs%% }"
+          removed_pkgs="${removed_pkgs%% }"
 
-      - name: 📦 build pkgs
-        working-directory: /home/builder/void-packages
+          echo "Changed templates: ${changed_pkgs:-<none>}"
+          echo "Removed templates: ${removed_pkgs:-<none>}"
+
+          echo "pkgs=$changed_pkgs" >> "$GITHUB_OUTPUT"
+          echo "removed=$removed_pkgs" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout void-packages
         run: |
-          pkgs=$(cat /tmp/templates)
+          git clone --depth 1 https://github.com/void-linux/void-packages.git /home/builder/void-packages
+          cd /home/builder/void-packages
+          git checkout --detach master
+          chown -R builder:builder /home/builder/void-packages
 
-          # Создаём скрипт от имени builder — без chown
-          sudo -Eu builder bash -c '
-          cat > /tmp/chroot-prepare.sh << '\''EOF'\''
-          #!/bin/sh
-          rm -rf /void-packages
-          echo "✅ /void-packages removed inside chroot"
-          EOF
-          chmod +x /tmp/chroot-prepare.sh
-          '
+      - name: Merge templates and edit shlibs
+        run: |
+          echo "==> copying templates..."
+          cp -rv extra/srcpkgs/* /home/builder/void-packages/srcpkgs/
 
-          for pkg in $pkgs; do
-            echo "🏗️ Building $pkg for $ARCH..."
-            if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
-              sudo -Eu builder \
-                XBPS_ALLOW_CHROOT_BREAKOUT=1 \
-                XBPS_NO_UNSHARE=1 \
-                XBPS_SRC_HOME=/home/builder/void-packages \
-                XBPS_CHROOT_PREPARE_SCRIPT=/tmp/chroot-prepare.sh \
-                /home/builder/void-packages/xbps-src \
-                  -m masterdir-${{ matrix.config.arch }} \
-                  -a ${{ matrix.config.arch }} \
-                  pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
+          SHLIBS_FILE="/home/builder/void-packages/common/shlibs"
+          APPEND_FILE="extra/shlibs_append"
+          REMOVE_FILE="extra/shlibs_remove"
+
+          echo "==> updating common/shlibs..."
+          if [ -f "$REMOVE_FILE" ]; then
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              grep -vF "$line" "$SHLIBS_FILE" > "$SHLIBS_FILE.tmp" && mv "$SHLIBS_FILE.tmp" "$SHLIBS_FILE"
+              echo "   - removed: $line"
+            done < "$REMOVE_FILE"
+          fi
+
+          if [ -f "$APPEND_FILE" ]; then
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              if ! grep -qF "$line" "$SHLIBS_FILE"; then
+                echo "$line" >> "$SHLIBS_FILE"
+                echo "   + added: $line"
+              fi
+            done < "$APPEND_FILE"
+          fi
+
+      - name: Prepare masterdir
+        run: |
+          cd /home/builder/void-packages
+          sudo -Eu builder common/travis/set_mirror.sh
+          sudo -Eu builder common/travis/prepare.sh
+          common/travis/fetch-xtools.sh
+
+      - name: Build
+        id: build_step
+        run: |
+          export PATH="/opt/xbps/usr/bin/:$PATH"
+          cd /home/builder/void-packages
+
+          changed="${{ steps.changed.outputs.pkgs }}"
+          removed="${{ steps.changed.outputs.removed }}"
+
+          if [ -z "$changed" ]; then
+            echo "No changed templates, skipping build."
+            echo "built=" >> "$GITHUB_OUTPUT"
+            echo "failed=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$BOOTSTRAP" != "$ARCH" ]; then
+            arch="-a $ARCH"
+          fi
+
+          if [ "$TEST" = 1 ]; then
+            test="-Q"
+          fi
+
+          PKGS=$(sudo -Eu builder ./xbps-src $test sort-dependencies $changed)
+          built=""
+          failed=""
+
+          for pkg in ${PKGS}; do
+            if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch $test pkg "${pkg}"; then
+              built="$built $pkg"
             else
-              sudo -Eu builder \
-                XBPS_NO_UNSHARE=1 \
-                XBPS_SRC_HOME=/home/builder/void-packages \
-                XBPS_CHROOT_PREPARE_SCRIPT=/tmp/chroot-prepare.sh \
-                /home/builder/void-packages/xbps-src \
-                  -m masterdir-${{ matrix.config.arch }} \
-                  -A ${{ matrix.config.arch }} \
-                  pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
+              echo "!! build failed for ${pkg}"
+              failed="$failed $pkg"
             fi
           done
 
+          built="${built%% }"
+          failed="${failed%% }"
 
+          echo "Built packages: ${built:-<none>}"
+          echo "Failed packages: ${failed:-<none>}"
+
+          echo "built=$built" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
 
       - name: 🧾 Clean & sign
         working-directory: /home/builder/void-packages/hostdir/binpkgs
@@ -222,6 +235,7 @@ jobs:
 
       - name: 🚀 release
         uses: softprops/action-gh-release@v3
+        if: github.ref == 'refs/heads/main' && matrix.config.arch == 'x86_64'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
