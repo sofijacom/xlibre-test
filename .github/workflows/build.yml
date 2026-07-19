@@ -3,16 +3,12 @@ name: "🏗️ Build Latest Packages"
 env:
   TAG: workflow-${{ github.run_number }}
   SHA: ${{ github.sha }}
-
+  
 on:
   push:
     branches: [main]
     paths: [srcpkgs/**]
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build:
@@ -151,7 +147,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: ${{ env.SHA }}
+          name: ${{ env.SHORT_SHA }}
           tag_name: ${{ env.TAG }}
           files: |
             /home/builder/void-packages/hostdir/binpkgs/**/*.xbps
