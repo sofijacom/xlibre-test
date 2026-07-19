@@ -55,16 +55,10 @@ jobs:
           env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl git github-cli xtools coreutils qemu-user-static
           useradd -G xbuilder -M builder -s $(which bash)
 
-          echo "🔧 Blocking /void-packages to prevent exec conflicts"
-          mkdir -p /void-packages
-          mount --bind /tmp /void-packages
-          mount --make-private /void-packages
-          echo "✅ /void-packages is now blocked (bound to /tmp)"
-
-      - name: 🔎 Clone void-packages
+      - name: 🔎 Clone void-packages (avoid /void-packages)
         run: |
-          git clone --depth=1 https://github.com/void-linux/void-packages.git /tmp/void-packages-src
-          cd /tmp/void-packages-src
+          git clone --depth=1 https://github.com/void-linux/void-packages.git /tmp/void-src
+          cd /tmp/void-src
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "*"
@@ -75,7 +69,7 @@ jobs:
         run: |
           rm -rf /home/builder/void-packages
           mkdir -p /home/builder/void-packages
-          cp -r /tmp/void-packages-src/. /home/builder/void-packages/
+          cp -r /tmp/void-src/. /home/builder/void-packages/
           chown -R builder:builder /home/builder/void-packages
           echo "✅ void-packages moved to /home/builder/void-packages"
 
