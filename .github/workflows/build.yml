@@ -133,14 +133,14 @@ jobs:
             if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
               sudo -Eu builder \
                 XBPS_ALLOW_CHROOT_BREAKOUT=1 \
-                ./xbps-src \
+                bash ./xbps-src \
                   -m masterdir-${{ matrix.config.arch }} \
                   -A ${{ matrix.config.arch }} \
                   pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
             else
               sudo -Eu builder \
                 XBPS_NO_UNSHARE=1 \
-                ./xbps-src \
+                bash ./xbps-src \
                   -m masterdir-${{ matrix.config.arch }} \
                   -A ${{ matrix.config.arch }} \
                   pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
