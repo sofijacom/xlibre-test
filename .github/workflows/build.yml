@@ -51,13 +51,21 @@ jobs:
           git clone --depth=1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" /work
           chown -R builder:xbuilder /work
 
+
       - name: 📦 binary-bootstrap
         run: |
           cd /home/builder/void-packages
           sudo -Eu builder \
-            XBPS_NO_UNSHARE=1 \
-            ./xbps-src -a "$TARGET_ARCH" -A "$TARGET_ARCH" binary-bootstrap
-          echo "✅ base-chroot установлен"
+          XBPS_NO_UNSHARE=1 \
+          ./xbps-src -a x86_64 -A x86_64 binary-bootstrap
+
+          # Проверяем, что masterdir создался
+          if [ -d "masterdir-x86_64/usr" ]; then
+          echo "✅ base-chroot подтверждён"
+          else
+          echo "❌ base-chroot не установлен"
+          exit 1
+          fi
 
       - name: 📝 Читаем список пакетов
         id: packages
