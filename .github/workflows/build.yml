@@ -142,7 +142,7 @@ jobs:
           REMOVE_FILE="extra/shlibs_remove"
 
           echo "==> updating common/shlibs..."
-          # Удаляем строки, если есть файл удаления          
+          # Удаляем строки, если есть файл удаления
           if [ -f "$REMOVE_FILE" ]; then
             while IFS= read -r line; do
               [ -z "$line" ] && continue
