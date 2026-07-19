@@ -136,14 +136,15 @@ jobs:
         run: |
           pkgs=$(cat /tmp/templates)
 
-          # Создаём скрипт, который удалит /void-packages внутри chroot
-          cat > /tmp/chroot-prepare.sh << 'EOF'
+          # Создаём скрипт от имени builder — без chown
+          sudo -Eu builder bash -c '
+          cat > /tmp/chroot-prepare.sh << '\''EOF'\''
           #!/bin/sh
           rm -rf /void-packages
           echo "✅ /void-packages removed inside chroot"
           EOF
           chmod +x /tmp/chroot-prepare.sh
-          sudo -Eu builder chown builder:builder /tmp/chroot-prepare.sh
+          '
 
           for pkg in $pkgs; do
             echo "🏗️ Building $pkg for $ARCH..."
@@ -168,6 +169,7 @@ jobs:
                   pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
             fi
           done
+
 
 
       - name: 🧾 Clean & sign
