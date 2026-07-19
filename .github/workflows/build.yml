@@ -77,7 +77,25 @@ jobs:
           # prepare home
           mkdir -p /home/builder
           chown builder:builder /home/builder
-          
+
+      - name: 🔧 Install cross compilers
+        run: |
+          case "$ARCH" in
+            aarch64|aarch64-musl)
+              xbps-install -y cross-aarch64-linux-gnu || xbps-install -y cross-aarch64-musl-linux-musl
+              ;;
+            armv7l)
+              xbps-install -y cross-armv7l-linux-gnueabihf
+              ;;
+            i686)
+              # Для i686 кросс-компиляция обычно не нужна, если хост x86_64
+              echo "No cross compiler needed for i686 on x86_64 host"
+              ;;
+            x86_64|x86_64-musl)
+              echo "Native build, no cross compiler needed"
+              ;;
+          esac
+
       - name: Checkout this repo
         run: |
           git clone --depth 1 "https://github.com/${{ github.repository }}.git" extra
@@ -136,8 +154,8 @@ jobs:
           cp -rv extra/srcpkgs/* /home/builder/void-packages/srcpkgs/
 
           # Копируем hooks (только файлы, сохраняя структуру папок)
-          mkdir -p /home/builder/void-packages/common/hooks/pre-configure
-          cp -v extra/common/hooks/pre-configure/* /home/builder/void-packages/common/hooks/pre-configure/ 2>/dev/null || true
+          # mkdir -p /home/builder/void-packages/common/hooks/pre-configure
+          # cp -v extra/common/hooks/pre-configure/* /home/builder/void-packages/common/hooks/pre-configure/ 2>/dev/null || true
 
           SHLIBS_FILE="/home/builder/void-packages/common/shlibs"
           APPEND_FILE="extra/shlibs_append"
@@ -165,14 +183,32 @@ jobs:
           fi
 
       # 👇 ЭТОТ ШАГ КРИТИЧЕСКИ ВАЖЕН 👇
-      - name: 🔐 Fix hook permissions (MUST HAVE)
-        run: |
-          echo "==> ensuring hooks are executable..."
-          # Находим все .sh файлы в папках hooks и делаем их исполняемыми
-          find /home/builder/void-packages/common/hooks -type f -name "*.sh" -print -exec chmod +x {} \;
+      #- name: 🔐 Fix hook permissions (MUST HAVE)
+      #  run: |
+      #    echo "==> ensuring hooks are executable..."
+      #    # Находим все .sh файлы в папках hooks и делаем их исполняемыми
+      #    find /home/builder/void-packages/common/hooks -type f -name "*.sh" -print -exec chmod +x {} \;
 
-          # Проверка: выводим список, чтобы видеть в логах, что права есть
-          ls -la /home/builder/void-packages/common/hooks/pre-configure/
+      #    # Проверка: выводим список, чтобы видеть в логах, что права есть
+      #    ls -la /home/builder/void-packages/common/hooks/pre-configure/
+
+      - name: 🔧 Install cross compilers
+        run: |
+          case "$ARCH" in
+            aarch64|aarch64-musl)
+              xbps-install -y cross-aarch64-linux-gnu || xbps-install -y cross-aarch64-musl-linux-musl
+              ;;
+            armv7l)
+              xbps-install -y cross-armv7l-linux-gnueabihf
+              ;;
+            i686)
+              # Для i686 кросс-компиляция обычно не нужна, если хост x86_64
+              echo "No cross compiler needed for i686 on x86_64 host"
+              ;;
+            x86_64|x86_64-musl)
+              echo "Native build, no cross compiler needed"
+              ;;
+          esac
 
       - name: Prepare masterdir
         run: |
