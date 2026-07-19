@@ -35,7 +35,7 @@ jobs:
       XBPS_NO_UNSHARE: "1"
 
     steps:
-      - name: 🔧 Prepare system
+      - name: 🔧 Подготовка системы
         run: |
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf
@@ -45,12 +45,12 @@ jobs:
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
           echo "✅ Система готова"
 
-      - name: 🌐 Clone void-packages
+      - name: 🌐 Клонируем void-packages
         run: |
           git clone --depth=1 https://github.com/void-linux/void-packages.git /home/builder/void-packages
           chown -R builder:xbuilder /home/builder/void-packages
 
-      - name: 📥 Clone my repo
+      - name: 📥 Клонируем мой репозиторий
         run: |
           git clone --depth=1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" /work
           chown -R builder:xbuilder /work
@@ -63,17 +63,17 @@ jobs:
             ./xbps-src -a "$TARGET_ARCH" -A "$TARGET_ARCH" binary-bootstrap
           echo "✅ base-chroot установлен"
 
-      - name: 📝 Read packages to build
+      - name: 📝 Читаем список пакетов
         id: packages
         run: |
           if [ -f /work/srcpkgs-to-build.txt ]; then
-            echo "list=$(cat /work/srcpkgs-to-build.txt)" >> $GITHUB_OUTPUT
+            echo "list=$(cat /work/srcpkgs-to-build.txt | tr '\n' ' ')" >> $GITHUB_OUTPUT
           else
             echo "list=hyprland" >> $GITHUB_OUTPUT
           fi
 
-      # 🚀 КЛЮЧЕВОЙ ШАГ: ВСЁ, ЧТО ДАЛЬШЕ — ВНУТРИ chroot
-      - name: 🚀 Build inside chroot
+      # 🚀 СБОРКА — ТОЛЬКО ВНУТРИ chroot
+      - name: 🚀 Сборка внутри chroot
         run: |
           cd /home/builder/void-packages
           MASTERDIR="$PWD/masterdir"
@@ -81,7 +81,7 @@ jobs:
           # Копируем srcpkgs
           cp -r /work/srcpkgs/* srcpkgs/ 2>/dev/null || true
 
-          # Запускаем сборку ВНУТРИ chroot
+          # Запускаем сборку ВНУТРИ chroot — НИКАКОГО unshare
           chroot "$MASTERDIR" /bin/sh -c "
             export HOME=/home/builder
             export USER=builder
@@ -89,20 +89,21 @@ jobs:
             cd /void-packages
             su - builder -c '
               for pkg in ${{ steps.packages.outputs.list }}; do
-                echo \"🔧 Собираем \$pkg\"
+                echo \"🔧 Собираем: \$pkg\"
                 ./xbps-src -a $TARGET_ARCH pkg \"\$pkg\" || exit 1
                 echo \"✅ \$pkg собран\"
               done
             '
           "
 
+          # Проверяем результат
           if [ $? -eq 0 ]; then
-            echo "✅ Сборка завершена"
+            echo "✅ Все пакеты успешно собраны"
           else
-            echo "❌ Ошибка сборки"
+            echo "❌ Ошибка при сборке"
             exit 1
           fi
-
+          
       - name: Clean & sign
         working-directory: /home/builder/void-packages/hostdir/binpkgs
         env:
