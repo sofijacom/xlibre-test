@@ -26,6 +26,7 @@ jobs:
       volumes:
         - /dev:/dev
       env:
+      #  XBPS_TARGET_MACHINE: '${{ matrix.config.arch }}'
         ARCH: '${{ matrix.config.arch }}'
         BOOTSTRAP: '${{ matrix.config.host }}'
         TEST: '${{ matrix.config.test }}'
