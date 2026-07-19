@@ -32,7 +32,7 @@ jobs:
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf
           xbps-install -Syu xbps && xbps-install -yu
-          xbps-install -y sudo bash git xtools coreutils
+          xbps-install -y sudo bash curl grep jq git zip unzip github-cli xtools
           useradd -m -G xbuilder builder -s /bin/bash
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
           echo "✅ Система готова"
