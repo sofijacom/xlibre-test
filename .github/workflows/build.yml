@@ -110,7 +110,8 @@ jobs:
             ./xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
 
           if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
-            echo "🔧 Copying qemu-aarch64-static into masterdir"
+            echo "🔧 Injecting qemu-aarch64-static into masterdir"
+            mkdir -p masterdir-${{ matrix.config.arch }}/usr/bin
             cp /usr/bin/qemu-aarch64-static masterdir-${{ matrix.config.arch }}/usr/bin/
           fi
 
@@ -120,27 +121,24 @@ jobs:
           chown -R builder:builder .
           pkgs=$(cat /tmp/templates)
 
-          if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
-            echo "🔧 Building ${{ matrix.config.arch }} via chroot + qemu"
-            MASTERDIR="masterdir-${{ matrix.config.arch }}"
-            chroot "$MASTERDIR" /bin/sh -c "
-              export HOME=/home/builder
-              export USER=builder
-              export XBPS_ALLOW_CHROOT_BREAKOUT=1
-              cd /void-packages
-              su - builder -c '
-                ./xbps-src -a ${{ matrix.config.arch }} pkg -j$(nproc) $pkgs
-              '
-            "
-          else
-            echo "🔧 Building ${{ matrix.config.arch }} natively"
-            for pkg in $pkgs; do
-              echo "🏗️ Building $pkg for $ARCH..."
+          for pkg in $pkgs; do
+            echo "🏗️ Building $pkg for $ARCH..."
+            if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
+              sudo -Eu builder \
+                XBPS_ALLOW_CHROOT_BREAKOUT=1 \
+                ./xbps-src \
+                  -m masterdir-${{ matrix.config.arch }} \
+                  -A ${{ matrix.config.arch }} \
+                  pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
+            else
               sudo -Eu builder \
                 XBPS_NO_UNSHARE=1 \
-                ./xbps-src pkg -j$(nproc) -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} "$pkg" || printf "Failed building $pkg!\n"
-            done
-          fi
+                ./xbps-src \
+                  -m masterdir-${{ matrix.config.arch }} \
+                  -A ${{ matrix.config.arch }} \
+                  pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
+            fi
+          done
 
       - name: 🧾 Clean & sign
         working-directory: void-packages/hostdir/binpkgs
