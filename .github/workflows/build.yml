@@ -26,7 +26,6 @@ jobs:
       volumes:
         - /dev:/dev
       env:
-      #  XBPS_TARGET_MACHINE: '${{ matrix.config.arch }}'
         ARCH: '${{ matrix.config.arch }}'
         BOOTSTRAP: '${{ matrix.config.host }}'
         TEST: '${{ matrix.config.test }}'
@@ -78,6 +77,20 @@ jobs:
           mkdir -p /home/builder
           chown builder:builder /home/builder
 
+      # ------------------------------------------------------------------
+      # ЭТА ЧАСТЬ РЕШАЕТ ОШИБКУ: Could not find package 'cross-aarch64-linux-gnu'
+      # ------------------------------------------------------------------
+      - name: 📦 Enable local repo with cross compilers (if present)
+        run: |
+          LOCAL_REPO="/home/builder/void-packages/hostdir/binpkgs"
+          if [ -d "$LOCAL_REPO" ] && [ -n "$(ls -A $LOCAL_REPO/*.xbps 2>/dev/null)" ]; then
+            echo "repository=file:///home/builder/void-packages/hostdir/binpkgs" > /etc/xbps.d/local-cross-repo.conf
+            echo "✅ Local repo enabled: $LOCAL_REPO"
+            xbps-create -M "$LOCAL_REPO"  # генерируем repodata, если её нет
+          else
+            echo "⚠️ No local cross-compiler packages found in $LOCAL_REPO, skipping local repo."
+          fi
+
       - name: 🔧 Install cross compilers (custom names)
         run: |
           echo "==> Detected ARCH: $ARCH"
@@ -86,7 +99,7 @@ jobs:
               pkg="cross-aarch64-linux-gnu"
               ;;
             aarch64-musl)
-              pkg="cross-aarch64-musl-linux-musl"
+              pkg="cross-aarch64-linux-musl"
               ;;
             armv7l)
               pkg="cross-armv7l-linux-gnueabihf"
@@ -193,16 +206,19 @@ jobs:
               fi
             done < "$APPEND_FILE"
           fi
-
-      # 👇 ЭТОТ ШАГ КРИТИЧЕСКИ ВАЖЕН 👇
-      #- name: 🔐 Fix hook permissions (MUST HAVE)
-      #  run: |
-      #    echo "==> ensuring hooks are executable..."
-      #    # Находим все .sh файлы в папках hooks и делаем их исполняемыми
-      #    find /home/builder/void-packages/common/hooks -type f -name "*.sh" -print -exec chmod +x {} \;
-
-      #    # Проверка: выводим список, чтобы видеть в логах, что права есть
-      #    ls -la /home/builder/void-packages/common/hooks/pre-configure/
+      # ------------------------------------------------------------------
+      # ЭТА ЧАСТЬ РЕШАЕТ ОШИБКУ: Could not find package 'cross-aarch64-linux-gnu'
+      # ------------------------------------------------------------------
+      - name: 📦 Enable local repo with cross compilers (if present)
+        run: |
+          LOCAL_REPO="/home/builder/void-packages/hostdir/binpkgs"
+          if [ -d "$LOCAL_REPO" ] && [ -n "$(ls -A $LOCAL_REPO/*.xbps 2>/dev/null)" ]; then
+            echo "repository=file:///home/builder/void-packages/hostdir/binpkgs" > /etc/xbps.d/local-cross-repo.conf
+            echo "✅ Local repo enabled: $LOCAL_REPO"
+            xbps-create -M "$LOCAL_REPO"  # генерируем repodata, если её нет
+          else
+            echo "⚠️ No local cross-compiler packages found in $LOCAL_REPO, skipping local repo."
+          fi
 
       - name: 🔧 Install cross compilers (custom names)
         run: |
@@ -212,7 +228,7 @@ jobs:
               pkg="cross-aarch64-linux-gnu"
               ;;
             aarch64-musl)
-              pkg="cross-aarch64-musl-linux-musl"
+              pkg="cross-aarch64-linux-musl"
               ;;
             armv7l)
               pkg="cross-armv7l-linux-gnueabihf"
