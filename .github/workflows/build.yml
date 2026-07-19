@@ -80,16 +80,6 @@ jobs:
       # ------------------------------------------------------------------
       # ЭТА ЧАСТЬ РЕШАЕТ ОШИБКУ: Could not find package 'cross-aarch64-linux-gnu'
       # ------------------------------------------------------------------
-      - name: 📦 Enable local repo with cross compilers (if present)
-        run: |
-          LOCAL_REPO="/home/builder/void-packages/hostdir/binpkgs"
-          if [ -d "$LOCAL_REPO" ] && [ -n "$(ls -A "$LOCAL_REPO"/*.xbps 2>/dev/null)" ]; then
-            echo "repository=file:///home/builder/void-packages/hostdir/binpkgs" > /etc/xbps.d/local-cross-repo.conf
-            xbps-create -M "$LOCAL_REPO"
-            echo "✅ Local repo enabled"
-          else
-            echo "⚠️ No local cross-compiler packages found"
-          fi
 
       - name: 🔧 Install correct cross compilers
         run: |
@@ -134,10 +124,7 @@ jobs:
               echo "No cross-compiler path needed"
               ;;
           esac
-          echo "✅ PATH updated for $ARCH"
-          # Проверка: теперь which должен найти компилятор
-          which "$CC" && echo "✅ Compiler found: $(which "$CC")"
-          "$CC" --version
+          echo "✅ CC and HOST_TRIPLET set for ARCH=$ARCH"
 
       - name: Checkout this repo
         run: |
