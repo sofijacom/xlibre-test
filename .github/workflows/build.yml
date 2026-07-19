@@ -131,7 +131,7 @@ jobs:
       - name: Merge templates and edit shlibs
         run: |
           echo "==> copying templates..."
-          # Копируем шаблоны пакетов         
+          # Копируем шаблоны пакетов
           cp -rv extra/srcpkgs/* /home/builder/void-packages/srcpkgs/
 
           # Копируем hooks и common (чтобы подхватился 00-cross-host.sh и др.)
