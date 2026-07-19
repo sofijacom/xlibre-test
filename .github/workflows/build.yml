@@ -83,7 +83,7 @@ jobs:
           echo "Latest Tag SHA: ${latest_sha}"
 
           git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
-          | cut -d/ -f 2 | uniq | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
+          | cut -d/ -f 2 | uniq | xargs sudo -Eu builder /home/builder/void-packages/xbps-src sort-dependencies | tee /tmp/templates
 
       - name: 📋 Setup void-packages
         working-directory: /home/builder/void-packages
@@ -108,7 +108,7 @@ jobs:
         run: |
           sudo -Eu builder \
             XBPS_NO_UNSHARE=1 \
-            ./xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
+            /home/builder/void-packages/xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
 
           if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
             echo "🔧 Injecting qemu-aarch64-static into masterdir"
@@ -126,14 +126,14 @@ jobs:
             if [ "${{ matrix.config.arch }}" = "aarch64" ] || [ "${{ matrix.config.arch }}" = "aarch64-musl" ]; then
               sudo -Eu builder \
                 XBPS_ALLOW_CHROOT_BREAKOUT=1 \
-                bash ./xbps-src \
+                bash /home/builder/void-packages/xbps-src \
                   -m masterdir-${{ matrix.config.arch }} \
                   -A ${{ matrix.config.arch }} \
                   pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
             else
               sudo -Eu builder \
                 XBPS_NO_UNSHARE=1 \
-                bash ./xbps-src \
+                bash /home/builder/void-packages/xbps-src \
                   -m masterdir-${{ matrix.config.arch }} \
                   -A ${{ matrix.config.arch }} \
                   pkg -j$(nproc) "$pkg" || printf "Failed building $pkg!\n"
