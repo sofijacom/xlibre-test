@@ -1,7 +1,7 @@
 name: "🏗️ Build Latest Packages"
 
 env:
-#  TAG: workflow-${{ github.run_number }}
+  TAG: workflow-${{ github.run_number }}
   SHA: ${{ github.sha }}
 
 on:
@@ -242,11 +242,9 @@ jobs:
           printf "SHORT_SHA=$(git rev-parse --short ${SHA})" >> $GITHUB_ENV
 
       - name: 🚀 release
-        if: github.ref == 'refs/heads/main' && matrix.config.arch == 'x86_64'
+        uses: softprops/action-gh-release@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: build-${{ github.run_number }}
-        uses: softprops/action-gh-release@v3
         with:
           name: ${{ env.SHORT_SHA }}
           tag_name: ${{ env.TAG }}
@@ -255,4 +253,5 @@ jobs:
             /home/builder/void-packages/hostdir/binpkgs/*.sig2
             /home/builder/void-packages/hostdir/binpkgs/*repodata
           overwrite: true
+
 
