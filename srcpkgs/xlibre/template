@@ -11,4 +11,3 @@ license="MIT"
 homepage="https://github.com/X11Libre/xserver/wiki"
 provides="xorg-${version}_${revision}"
 replaces="xorg>=0"
-
