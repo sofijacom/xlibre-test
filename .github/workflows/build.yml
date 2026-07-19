@@ -30,13 +30,17 @@ jobs:
           git clone --depth=1 https://github.com/void-linux/void-packages.git /home/builder/void-packages
           chown -R builder:xbuilder /home/builder/void-packages
 
+
       - name: 📦 binary-bootstrap
         run: |
           cd /home/builder/void-packages
           sudo -Eu builder \
-            XBPS_NO_UNSHARE=1 \
-            ./xbps-src -a "$TARGET_ARCH" -A "$TARGET_ARCH" binary-bootstrap
-          echo "✅ base-chroot установлен"
+          XBPS_NO_UNSHARE=1 \
+          ./xbps-src -a x86_64 -A x86_64 binary-bootstrap
+          # ВСЁ, ЧТО БЫЛО ПОСЛЕ — ЗАКОММЕНТИРОВАНО
+          # - name: 🚀 Сборка...
+          #   run: |
+          #     ./xbps-src ...   ← ❌ вот он, враг
 
       - name: 🧪 Добавляем hello
         run: |
