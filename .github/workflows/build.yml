@@ -101,6 +101,13 @@ jobs:
           echo 'XBPS_DISTDIR=$PWD/hostdir/distfiles' >> etc/conf
           echo 'XBPS_MASTERDIR_PKGS="$PWD/hostdir/binpkgs"' >> etc/conf
 
+      - name: ✅ Fix execute permissions
+        working-directory: void-packages
+        run: |
+          echo "🔧 Fixing execute permissions for xbps-src and templates"
+          chmod +x xbps-src
+          find srcpkgs -name template -type f -exec chmod +x {} \;
+
       - name: ✅ Prepare masterdir
         working-directory: void-packages
         run: |
