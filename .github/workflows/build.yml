@@ -26,14 +26,14 @@ jobs:
       matrix:
         config:
           - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
-          - { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
+          - { arch: i686,         host: i686,        libc: glibc, platform: linux/amd64, test: 1 }
           - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
-          - { arch: aarch64,      host: aarch64,     libc: glibc, platform: linux/arm64, test: 0 }
-          - { arch: aarch64-musl, host: aarch64-musl, libc: musl,  platform: linux/arm64, test: 0 }
+          - { arch: aarch64,      host: aarch64,     libc: glibc, platform: linux/amd64, test: 0 }
+          - { arch: aarch64-musl, host: aarch64-musl, libc: musl,  platform: linux/amd64, test: 0 }
 
     container:
       image: ghcr.io/void-linux/void-glibc-full:20250616R1
-      options: --platform ${{ matrix.config.platform }} --privileged
+      options: --platform linux/amd64 --privileged  # ⚠️ Только amd64!
       volumes:
         - /dev:/dev
       env:
@@ -52,13 +52,21 @@ jobs:
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
-          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl git github-cli xtools coreutils qemu-user-static
-          useradd -G xbuilder -M builder -s $(which bash)
 
-          # 🔧 Установим кросс-инструменты для aarch64
+          # Установим базовые инструменты
+          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl git github-cli xtools coreutils
+
+          # 🔧 Установим кросс-инструменты ДО сборки
           if [ "${{ matrix.config.host }}" = "aarch64" ] || [ "${{ matrix.config.host }}" = "aarch64-musl" ]; then
-            env -u XBPS_TARGET_ARCH xbps-install -y gcc-aarch64-linux-gnu glibc-devel-aarch64-linux-gnu binutils-aarch64-linux-gnu
+            echo "🔧 Installing aarch64 cross-tools..."
+            env -u XBPS_TARGET_ARCH xbps-install -y \
+              gcc-aarch64-linux-gnu \
+              glibc-devel-aarch64-linux-gnu \
+              binutils-aarch64-linux-gnu \
+              qemu-user-static
           fi
+
+          useradd -G xbuilder -M builder -s $(which bash)
 
       - name: 🔎 Checkout void-packages
         uses: actions/checkout@v6
@@ -111,13 +119,14 @@ jobs:
         working-directory: void-packages
         run: |
           chown -R builder:builder .
-          # 🔧 Для aarch64 — используем кросс-сборку
           if [ "${{ matrix.config.host }}" = "aarch64" ] || [ "${{ matrix.config.host }}" = "aarch64-musl" ]; then
+            echo "🔧 Cross-building for aarch64: using XBPS_CROSS_BUILD"
             sudo -Eu builder \
               XBPS_CROSS_BUILD=aarch64-linux-gnu \
               XBPS_TARGET_ARCH=aarch64 \
               ./xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
           else
+            echo "🔧 Native build for ${{ matrix.config.arch }}"
             sudo -Eu builder \
               XBPS_NO_UNSHARE=1 \
               ./xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
