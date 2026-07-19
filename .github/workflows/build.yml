@@ -79,35 +79,23 @@ jobs:
             echo "list=hyprland" >> $GITHUB_OUTPUT
           fi
 
+
       - name: 🚀 Сборка внутри chroot
         run: |
           cd /home/builder/void-packages
           MASTERDIR="masterdir-${TARGET_ARCH}"
-
-          # Копируем srcpkgs
-          cp -r /work/srcpkgs/* srcpkgs/ 2>/dev/null || true
-
-          # Запускаем сборку ВНУТРИ chroot
-          chroot "$MASTERDIR" /bin/sh -c "
-            export HOME=/home/builder
-            export USER=builder
-            export XBPS_ALLOW_CHROOT_BREAKOUT=1
-            cd /void-packages
-            su - builder -c '
-              for pkg in ${{ steps.packages.outputs.list }}; do
-                echo \"🔧 Собираем: \$pkg\"
-                ./xbps-src -a $TARGET_ARCH pkg \"\$pkg\" || exit 1
-                echo \"✅ \$pkg собран\"
-              done
-            '
-          "
-
-          if [ $? -eq 0 ]; then
-            echo "✅ Сборка завершена"
-          else
-            echo "❌ Ошибка сборки"
-            exit 1
+          ...
+          su - builder -c '
+          for pkg in ${{ steps.packages.outputs.list }}; do
+          echo "🔧 Собираем: \$pkg"
+          ./xbps-src -a $TARGET_ARCH pkg "\$pkg" | tee build.log  # ← лог в реальном времени
+          if [ \$? -ne 0 ]; then
+          echo "❌ Ошибка при сборке \$pkg"
+          exit 1
           fi
+          done
+          '
+
           
       - name: Clean & sign
         working-directory: /home/builder/void-packages/hostdir/binpkgs
