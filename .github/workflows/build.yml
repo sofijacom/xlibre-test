@@ -83,17 +83,16 @@ jobs:
       - name: 📦 Enable local repo with cross compilers (if present)
         run: |
           LOCAL_REPO="/home/builder/void-packages/hostdir/binpkgs"
-          if [ -d "$LOCAL_REPO" ] && [ -n "$(ls -A $LOCAL_REPO/*.xbps 2>/dev/null)" ]; then
+          if [ -d "$LOCAL_REPO" ] && [ -n "$(ls -A "$LOCAL_REPO"/*.xbps 2>/dev/null)" ]; then
             echo "repository=file:///home/builder/void-packages/hostdir/binpkgs" > /etc/xbps.d/local-cross-repo.conf
-            echo "✅ Local repo enabled: $LOCAL_REPO"
-            xbps-create -M "$LOCAL_REPO"  # генерируем repodata, если её нет
+            xbps-create -M "$LOCAL_REPO"
+            echo "✅ Local repo enabled"
           else
-            echo "⚠️ No local cross-compiler packages found in $LOCAL_REPO, skipping local repo."
+            echo "⚠️ No local cross-compiler packages found"
           fi
 
-      - name: 🔧 Install cross compilers (custom names)
+      - name: 🔧 Install correct cross compilers
         run: |
-          echo "==> Detected ARCH: $ARCH"
           case "$ARCH" in
             aarch64)
               pkg="cross-aarch64-linux-gnu"
@@ -104,29 +103,41 @@ jobs:
             armv7l)
               pkg="cross-armv7l-linux-gnueabihf"
               ;;
-            i686|x86_64|x86_64-musl)
-              echo "Native or no cross-compiler needed for $ARCH"
-              exit 0
-              ;;
             *)
-              echo "Unknown architecture: $ARCH, skipping"
+              echo "Native arch, skipping cross compiler"
               exit 0
               ;;
           esac
 
-          echo "==> Installing cross compiler: $pkg"
-          # Важно: используем --no-confirm, чтобы не ждать ввода
-          xbps-install -y "$pkg" || {
-            echo "ERROR: Could not install $pkg. Check repo repodata!"
-            exit 1
-          }
+          echo "==> Installing: $pkg"
+          xbps-install -y "$pkg"
 
-          # Проверка: убедимся, что компилятор реально появился
-          if [ "$ARCH" = "aarch64" ]; then
-            which aarch64-linux-gnu-gcc && echo "✅ GCC found: $(aarch64-linux-gnu-gcc --version | head -n1)"
-          elif [ "$ARCH" = "aarch64-musl" ]; then
-            which aarch64-musl-linux-musl-gcc && echo "✅ MUSL GCC found: $(aarch64-musl-linux-musl-gcc --version | head -n1)"
-          fi
+      # 👇 ЭТОТ ШАГ КРИТИЧЕСКИ ВАЖЕН 👇
+      - name: 🗺 Add cross-compiler paths to PATH
+        run: |
+          case "$ARCH" in
+            aarch64)
+              # Для glibc
+              export PATH="/usr/lib/cross-aarch64-unknown-linux-gnu/bin:$PATH"
+              export CC="aarch64-unknown-linux-gnu-gcc"
+              ;;
+            aarch64-musl)
+              # Для musl — именно твой случай
+              export PATH="/usr/lib/cross-aarch64-musl-linux-musl/bin:$PATH"
+              export CC="aarch64-musl-linux-musl-gcc"
+              ;;
+            armv7l)
+              export PATH="/usr/lib/cross-armv7l-unknown-linux-gnueabihf/bin:$PATH"
+              export CC="armv7l-unknown-linux-gnueabihf-gcc"
+              ;;
+            *)
+              echo "No cross-compiler path needed"
+              ;;
+          esac
+          echo "✅ PATH updated for $ARCH"
+          # Проверка: теперь which должен найти компилятор
+          which "$CC" && echo "✅ Compiler found: $(which "$CC")"
+          "$CC" --version
 
       - name: Checkout this repo
         run: |
@@ -216,53 +227,6 @@ jobs:
       # ------------------------------------------------------------------
       # ЭТА ЧАСТЬ РЕШАЕТ ОШИБКУ: Could not find package 'cross-aarch64-linux-gnu'
       # ------------------------------------------------------------------
-      - name: 📦 Enable local repo with cross compilers (if present)
-        run: |
-          LOCAL_REPO="/home/builder/void-packages/hostdir/binpkgs"
-          if [ -d "$LOCAL_REPO" ] && [ -n "$(ls -A $LOCAL_REPO/*.xbps 2>/dev/null)" ]; then
-            echo "repository=file:///home/builder/void-packages/hostdir/binpkgs" > /etc/xbps.d/local-cross-repo.conf
-            echo "✅ Local repo enabled: $LOCAL_REPO"
-            xbps-create -M "$LOCAL_REPO"  # генерируем repodata, если её нет
-          else
-            echo "⚠️ No local cross-compiler packages found in $LOCAL_REPO, skipping local repo."
-          fi
-
-      - name: 🔧 Install cross compilers (custom names)
-        run: |
-          echo "==> Detected ARCH: $ARCH"
-          case "$ARCH" in
-            aarch64)
-              pkg="cross-aarch64-linux-gnu"
-              ;;
-            aarch64-musl)
-              pkg="cross-aarch64-linux-musl"
-              ;;
-            armv7l)
-              pkg="cross-armv7l-linux-gnueabihf"
-              ;;
-            i686|x86_64|x86_64-musl)
-              echo "Native or no cross-compiler needed for $ARCH"
-              exit 0
-              ;;
-            *)
-              echo "Unknown architecture: $ARCH, skipping"
-              exit 0
-              ;;
-          esac
-
-          echo "==> Installing cross compiler: $pkg"
-          # Важно: используем --no-confirm, чтобы не ждать ввода
-          xbps-install -y "$pkg" || {
-            echo "ERROR: Could not install $pkg. Check repo repodata!"
-            exit 1
-          }
-
-          # Проверка: убедимся, что компилятор реально появился
-          if [ "$ARCH" = "aarch64" ]; then
-            which aarch64-linux-gnu-gcc && echo "✅ GCC found: $(aarch64-linux-gnu-gcc --version | head -n1)"
-          elif [ "$ARCH" = "aarch64-musl" ]; then
-            which aarch64-musl-linux-musl-gcc && echo "✅ MUSL GCC found: $(aarch64-musl-linux-musl-gcc --version | head -n1)"
-          fi
 
       - name: Prepare masterdir
         run: |
