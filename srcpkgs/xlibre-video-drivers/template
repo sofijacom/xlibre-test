@@ -10,7 +10,7 @@ maintainer="Sofiya <sofiya@v.com>"
 license="MIT"
 provides="xorg-video-drivers-${version}_${revision}"
 replaces="xorg-video-drivers>=0"
-homepage="https://github.com/X11Libre/xserver/wiki"
+homepage=""
 
 case "$XBPS_TARGET_MACHINE" in
 	i686*|x86_64*) depends+=" xlibre-xf86-video-vesa xlibre-xf86-video-vmware" ;;
