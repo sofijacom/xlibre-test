@@ -18,6 +18,6 @@ depends="iceauth>=0 oclock>=0 sessreg>=0 setxkbmap>=0
 short_desc="Xlibre applications"
 maintainer="Sofiya <sofiya@v.com>"
 license="Public Domain"
-homepage="https://github.com/X11Libre/xserver/wiki"
+homepage=""
 provides="xorg-apps-${version}_${revision}"
 replaces="xorg-apps>=0"
