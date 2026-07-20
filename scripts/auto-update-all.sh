@@ -1,8 +1,5 @@
 #!/bin/bash
-# auto-update-all.sh — массовое обновление шаблонов
-# Поддерживает GitHub releases, tags, отладку
-
-# set -euo pipefail
+#set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -17,233 +14,134 @@ srcpkgs_dir="srcpkgs"
 updated_count=0
 declare -a updated_pkgs
 
-# Спец-пакеты
+# Исключения
 declare -A skip_pkgs=(
   ["xlibre-repo"]=1
   ["xlibre-xf86-input-evdev-devel"]=1
   ["workflow-helper"]=1
 )
 
-if [[ ! -d "$srcpkgs_dir" ]]; then
-  echo -e "${RED}❌ Папка $srcpkgs_dir не найдена${NC}"
-  exit 1
-fi
+# Функция: извлекает версию из тега (например, xlibre-xf86-video-amdgpu-25.1.1 → 25.1.1)
+extract_version() {
+  local tag="$1"
+  # Убираем префикс вроде xlibre-, xorg-, xo-, release-, v
+  echo "$tag" | sed -E 's/^(xlibre-|xorg-|xo-|release-|v|util-macros-)//i' | sed 's/_/./g'
+}
 
-total_dirs=()
+# Функция: проверяет, выглядит ли строка как цифровая версия (25.1.1, 1.20.2 и т.д.)
+is_valid_version() {
+  [[ "$1" =~ ^[0-9]+(\.[0-9]+)*$ ]]
+}
+
+# Функция: получает последний тег из репозитория
+get_latest_tag() {
+  local repo="$1"
+  local tag_url="https://api.github.com/repos/$repo/tags"
+  local tag_data
+  tag_data=$(curl -s -H "Accept: application/vnd.github.v3+json" "$tag_url" | jq -r '.[0].name' 2>/dev/null || echo "")
+  if [[ -n "$tag_data" && "$tag_data" != "null" ]]; then
+    echo "$tag_data"
+  else
+    echo ""
+  fi
+}
+
+# Функция: получает последний релиз
+get_latest_release_tag() {
+  local repo="$1"
+  local rel_url="https://api.github.com/repos/$repo/releases/latest"
+  local tag_name
+  tag_name=$(curl -s -H "Accept: application/vnd.github.v3+json" "$rel_url" | jq -r '.tag_name' 2>/dev/null || echo "")
+  if [[ -n "$tag_name" && "$tag_name" != "null" ]]; then
+    echo "$tag_name"
+  else
+    echo ""
+  fi
+}
+
+# Проход по папкам
 for dir in "$srcpkgs_dir"/*/; do
-  [[ -d "$dir" ]] && [[ ! -L "$dir" ]] && total_dirs+=("$dir")
-done
-total=${#total_dirs[@]}
-i=0
+  pkg_name=$(basename "$dir")
+  [[ -d "$dir" ]] || continue
+  [[ -L "$dir" ]] && continue
+  [[ -v skip_pkgs["$pkg_name"] ]] && { echo -e "🛠 [$pkg_name] — исключён — пропускаем"; continue; }
 
-echo -e "${GREEN}🔄 Начинаем обновление — найдено: $total пакетов${NC}"
+  template_file="$dir/template"
+  [[ -f "$template_file" ]] || { echo -e "${RED}❌ Нет template: $template_file${NC}"; continue; }
 
-for pkgdir in "$srcpkgs_dir"/*/; do
-  pkgname=$(basename "$pkgdir")
-  [[ -d "$pkgdir" ]] || continue
+  current_version=$(grep -E "^version=" "$template_file" | cut -d= -f2 | tr -d '"')
+  [[ -n "$current_version" ]] || { echo -e "${YELLOW}⚠️  Нет версии в $pkg_name${NC}"; continue; }
 
-  if [[ -L "$pkgdir" ]]; then
-    echo -e "\n${YELLOW}🔗 [$((++i))/$total] $pkgname — симлинк — пропускаем${NC}"
-    continue
-  fi
-  ((i++))
+  echo -e "📦 Обрабатываем: $pkg_name"
+  echo -e "   Текущая версия: $current_version"
 
-  if [[ -n "${skip_pkgs[$pkgname]:-}" ]]; then
-    echo -e "\n${YELLOW}🛠 [$i/$total] $pkgname — исключён — пропускаем${NC}"
-    continue
-  fi
-
-  template="$pkgdir/template"
-  if [[ ! -f "$template" ]]; then
-    echo -e "\n${YELLOW}⚠️  [$i/$total] $pkgname — нет template — пропускаем${NC}"
-    continue
-  fi
-
-  echo -e "\n${BLUE}📦 [$i/$total] Обрабатываем: $pkgname${NC}"
-
-  old_version=$(grep "^version=" "$template" | cut -d= -f2 | tr -d '"' | sed 's/ //g' || true)
-  if [[ -z "$old_version" ]]; then
-    echo -e "   ${YELLOW}⚠️  Нет version= — пропускаем${NC}"
-    continue
-  fi
-  echo -e "   ${YELLOW}Текущая версия: $old_version${NC}"
-
-  homepage=$(grep "^homepage=" "$template" | cut -d= -f2- | tr -d '"' | sed 's/ //g' || true)
-  distfiles_line=$(grep "^distfiles=" "$template" | sed 's/^distfiles="\(.*\)".*/\1/' || true)
-  distfiles=$(echo "$distfiles_line" | awk '{print $1}' | sed 's/ //g' || true)
-
-  new_version=""
-
-  # === 1. Попытка: GitHub Releases ===
-  if [[ -n "$homepage" && "$homepage" == https://github.com/* ]] && [[ "$homepage" != *github.com/void-linux* ]] && [[ "$homepage" != *wiki* ]]; then
-    repo_path="${homepage#https://github.com/}"
-    repo_path="${repo_path%/}"
-    api_url="https://api.github.com/repos/$repo_path/releases/latest"
-    echo -e "   ${YELLOW}🔧 Запрашиваем: $api_url${NC}"
-
-    response=$(curl -s --fail -H "Accept: application/vnd.github.v3+json" "$api_url" || true)
-    if [[ -z "$response" ]]; then
-      echo -e "   ${RED}❌ API: пустой ответ — возможно, нет релизов${NC}"
-    else
-      echo -e "   ${YELLOW}🔍 Ответ получен (фрагмент): $(echo "$response" | head -c 100)...${NC}"
-      tag_name=$(echo "$response" | grep '"tag_name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//' | sed 's/ .*//' || true)
-      if [[ -n "$tag_name" ]]; then
-        echo -e "   ${GREEN}🏷️  Найден тег: $tag_name${NC}"
-        if [[ "$tag_name" =~ ^[0-9]+\.[0-9] ]]; then
-          new_version="$tag_name"
-          echo -e "   ${GREEN}✅ Версия принята: $new_version${NC}"
-        else
-          echo -e "   ${YELLOW}⚠️  Тег не цифровой: $tag_name — пропускаем${NC}"
-        fi
-      else
-        echo -e "   ${YELLOW}⚠️  В ответе нет tag_name — возможно, нет релизов${NC}"
+  # Определяем репозиторий (можно улучшить через _template или _gitrepo)
+  case "$pkg_name" in
+    xlibre-xf86-input-*|xlibre-xf86-video-*|xlibre-util-macros|xlibre-xorgproto)
+      repo_name=$(echo "$pkg_name" | sed 's/^xlibre-//')
+      repo_owner="X11Libre"
+      if [[ "$repo_name" == "util-macros" || "$repo_name" == "xorgproto" ]]; then
+        repo_owner="X11Libre"
+        repo_name="mirror.fdo.${repo_name}"
       fi
-    fi
-  fi
+      repo_full="$repo_owner/$repo_name"
+      ;;
+    xlibre-xserver*|xlibre-apps|xlibre-minimal|xlibre-input-drivers|xlibre-video-drivers)
+      repo_full="X11Libre/xserver"
+      ;;
+    *)
+      echo -e "${YELLOW}⚠️  Неизвестный пакет — пропускаем${NC}"
+      continue
+      ;;
+  esac
 
-  # === 2. Попытка: последний тег в репозитории ===
-  if [[ -z "$new_version" && -n "$homepage" && "$homepage" == https://github.com/* ]]; then
-    repo_path="${homepage#https://github.com/}"
-    repo_path="${repo_path%/}"
-    tags_url="https://api.github.com/repos/$repo_path/tags?per_page=1"
-    echo -e "   ${YELLOW}🔍 Проверяем последний тег: $tags_url${NC}"
-
-    tag_response=$(curl -s --fail -H "Accept: application/vnd.github.v3+json" "$tags_url" || true)
-    if [[ -n "$tag_response" ]]; then
-      latest_tag=$(echo "$tag_response" | grep '"name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//' | sed 's/ .*//' || true)
-      if [[ -n "$latest_tag" ]]; then
-        echo -e "   ${GREEN}🏷️  Последний тег: $latest_tag${NC}"
-
-        # Нормализуем тег: xorg-25.0 → 25.0, RELEASE-25-1 → 25.1
-        normalized_tag=$(echo "$latest_tag" | sed -E 's/[^0-9.]+([0-9]+\.[0-9]+.*)/\1/' | sed -E 's/[^0-9.]//g' | sed -E 's/\.$//' || true)
-        if [[ "$normalized_tag" =~ ^[0-9]+\.[0-9] ]]; then
-          new_version="$normalized_tag"
-          echo -e "   ${GREEN}✅ Версия нормализована: $new_version${NC}"
-        elif [[ "$latest_tag" =~ ^[0-9]+\.[0-9] ]]; then
-          new_version="$latest_tag"
-          echo -e "   ${GREEN}✅ Версия принята: $new_version${NC}"
-        else
-          echo -e "   ${YELLOW}⚠️  Не удалось нормализовать: $latest_tag${NC}"
-        fi
-      else
-        echo -e "   ${YELLOW}⚠️  Нет тегов в репозитории${NC}"
-      fi
-    else
-      echo -e "   ${RED}❌ Ошибка при запросе тегов${NC}"
-    fi
-  fi
-
-  # === 3. Попытка: из distfiles (GitHub archive) ===
-  if [[ -z "$new_version" && -n "$distfiles" && "$distfiles" == *github.com* ]]; then
-    if [[ "$distfiles" =~ /archive/(.+)\.tar\.gz ]]; then
-      tag="${BASH_REMATCH[1]}"
-      ver="${tag#v}"
-      ver="${ver%.tar.gz}"
-      if [[ "$ver" =~ ^[0-9]+\.[0-9] ]]; then
-        new_version="$ver"
-        echo -e "   ${GREEN}🔍 Распознано из URL: $new_version${NC}"
-      fi
-    fi
-  fi
-
-  # === 4. Попытка: из имени файла ===
-  if [[ -z "$new_version" && -n "$distfiles" ]]; then
-    filename=$(basename "$distfiles")
-    if [[ "$filename" =~ -([0-9]+\.[0-9]+(\.[0-9]+)?([.-][a-zA-Z0-9]+)?)\.(tar|zip) ]]; then
-      ver="${BASH_REMATCH[1]}"
-      if [[ "$ver" =~ ^[0-9]+\.[0-9] ]]; then
-        new_version="$ver"
-        echo -e "   ${GREEN}🔍 Распознано из имени: $new_version${NC}"
-      fi
-    fi
-  fi
-
-  # === 5. Проверка ===
-  if [[ -z "$new_version" ]]; then
-    echo -e "   ${YELLOW}⚠️  Не удалось определить версию — пропускаем${NC}"
-    continue
-  fi
-
-  if [[ "$new_version" == "$old_version" ]]; then
-    echo -e "   ${GREEN}✅ Уже актуально: $old_version${NC}"
-    continue
-  fi
-
-  # === 6. Обновляем version ===
-  if sed -i "s|^version=.*|version=\"$new_version\"|" "$template"; then
-    echo -e "   ${GREEN}✅ Версия обновлена: $old_version → $new_version${NC}"
+  latest_tag=""
+  # Сначала пытаемся взять из релизов
+  latest_tag=$(get_latest_release_tag "$repo_full")
+  if [[ -n "$latest_tag" ]]; then
+    echo -e "   🏷️  Найден релизный тег: $latest_tag"
   else
-    echo -e "   ${RED}❌ Ошибка при обновлении version — пропускаем${NC}"
+    # Если релизов нет — берём последний тег
+    latest_tag=$(get_latest_tag "$repo_full")
+    if [[ -n "$latest_tag" ]]; then
+      echo -e "   🏷️  Последний тег: $latest_tag"
+    else
+      echo -e "${YELLOW}   ⚠️  Не удалось получить тег${NC}"
+      continue
+    fi
+  fi
+
+  # Извлекаем чистую версию
+  candidate_version=$(extract_version "$latest_tag")
+  if ! is_valid_version "$candidate_version"; then
+    echo -e "${YELLOW}   ⚠️  Не цифровая версия: $candidate_version — пропускаем${NC}"
     continue
   fi
 
-  # === 7. Обновляем distfiles ===
-  new_distfiles="$distfiles_line"
-  new_distfiles="${new_distfiles//\$\{version\}/$new_version}"
-  new_distfiles="${new_distfiles//\$version/$new_version}"
-  new_distfiles="${new_distfiles//\$\{pkgname\}/$pkgname}"
-  new_distfiles="${new_distfiles//\$pkgname/$pkgname}"
-  new_distfiles=$(echo "$new_distfiles" | sed 's|//+|/|g; s|https:/|https://|g')
-
-  archive_url=$(echo "$new_distfiles" | awk '{print $1}' | tr -d '"' | sed 's/ //g' || true)
-  if [[ -z "$archive_url" ]]; then
-    echo -e "   ${RED}❌ Не удалось сформировать URL — откатываем${NC}"
-    sed -i "s|^version=.*|version=\"$old_version\"|" "$template"
+  if [[ "$candidate_version" == "$current_version" ]]; then
+    echo -e "   ✅ Уже актуально: $current_version"
     continue
   fi
 
-  echo -e "   ${YELLOW}🔗 URL: $archive_url${NC}"
+  # Обновляем шаблон
+  sed -i "s/^version=.*/version=\"$candidate_version\"/" "$template_file"
+  echo -e "${GREEN}   ✅ Версия обновлена: $current_version → $candidate_version${NC}"
 
-  if ! curl -s --fail -o /dev/null -I "$archive_url"; then
-    echo -e "   ${RED}❌ URL недоступен — откатываем${NC}"
-    sed -i "s|^version=.*|version=\"$old_version\"|" "$template"
-    continue
-  fi
-
-  # === 8. Скачивание и checksum ===
-  tmpdir="/tmp/autoupdate-$pkgname"
-  mkdir -p "$tmpdir" || { echo -e "   ${RED}❌ Не могу создать папку${NC}"; continue; }
-  cd "$tmpdir" || continue
-
-  filename=$(basename "$archive_url")
-  echo -e "   ${YELLOW}⬇️ Скачиваю $filename...${NC}"
-
-  if ! curl -fL -o "$filename" "$archive_url"; then
-    echo -e "   ${RED}❌ Ошибка загрузки — откатываем${NC}"
-    sed -i "s|^version=.*|version=\"$old_version\"|" "$template"
-    continue
-  fi
-
-  new_checksum=$(sha256sum "$filename" | awk '{print $1}' || true)
-  if [[ -z "$new_checksum" ]]; then
-    echo -e "   ${RED}❌ Ошибка хеширования — откатываем${NC}"
-    sed -i "s|^version=.*|version=\"$old_version\"|" "$template"
-    continue
-  fi
-
-  if sed -i "s|^checksum=.*|checksum=\"$new_checksum\"|" "$template"; then
-    echo -e "   ${GREEN}✅ Checksum обновлён${NC}"
+  # Обновляем URL (если есть)
+  new_url="https://github.com/$repo_owner/${repo_name}/archive/refs/tags/$latest_tag.tar.gz"
+  if grep -q "^distfiles=" "$template_file"; then
+    sed -i "s|^distfiles=.*|distfiles=\"$new_url\"|" "$template_file"
   else
-    echo -e "   ${RED}❌ Ошибка checksum — откатываем${NC}"
-    sed -i "s|^version=.*|version=\"$old_version\"|" "$template"
-    continue
+    sed -i "/^version=.*/a distfiles=\"$new_url\"" "$template_file"
   fi
 
-  echo -e "   ${GREEN}🎉 Успешно: $old_version → $new_version${NC}"
   updated_count=$((updated_count + 1))
-  updated_pkgs+=("$pkgname: $old_version → $new_version")
+  updated_pkgs+=("$pkg_name")
 done
 
-# === 9. Итог ===
-echo -e "\n${GREEN}✅ Готово: обработано $total пакетов${NC}"
-echo -e "${GREEN}🔄 Попыток: $((i))${NC}"
+echo -e "${GREEN}✅ Готово: обработано $((updated_count + $(echo ${#skip_pkgs[@]} + $(ls -1 "$srcpkgs_dir"/*/ | wc -l)) )) пакетов${NC}"
 echo -e "${GREEN}🎉 Успешно обновлено: $updated_count${NC}"
-
 if [[ $updated_count -gt 0 ]]; then
-  echo -e "${BLUE}📝 Обновлены:${NC}"
-  for pkg in "${updated_pkgs[@]}"; do
-    echo "   • $pkg"
-  done
-else
-  echo -e "${YELLOW}ℹ️  Нет обновлений${NC}"
+  echo -e "${BLUE}📝 Изменённые пакеты:${NC}"
+  printf '  - %s\n' "${updated_pkgs[@]}"
 fi
