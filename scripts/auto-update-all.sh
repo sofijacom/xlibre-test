@@ -22,7 +22,6 @@ declare -A skip_pkgs=(
   ["xlibre-video-drivers"]=1
   ["xlibre-repo"]=1
   ["workflow-helper"]=1
-  # Devel-пакеты — генерируются автоматически
   ["xlibre-xf86-input-evdev-devel"]=1
   ["xlibre-xf86-input-libinput-devel"]=1
   ["xlibre-xf86-input-synaptics-devel"]=1
@@ -133,7 +132,7 @@ for dir in "$srcpkgs_dir"/*/; do
   new_url="https://github.com/$repo_full/archive/refs/tags/$latest_tag.tar.gz"
 
   # Обновляем distfiles
-  if grep -q "^distfiles=" "$template_file"); then
+  if grep -q "^distfiles=" "$template_file"; then
     sed -i "s|^distfiles=.*|distfiles=\"$new_url\"|" "$template_file"
   else
     sed -i "/^version=.*/a distfiles=\"$new_url\"" "$template_file"
