@@ -2,7 +2,7 @@
 # auto-update-all.sh — массовое обновление всех template в srcpkgs
 # Полностью отказоустойчивый, с прогрессом и логами
 
-set -euo pipefail
+# set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
