@@ -182,8 +182,8 @@ jobs:
             export PATH="/opt/xbps/usr/bin/:$PATH"
             # 👇 ВОТ ЭТА ПЕРЕМЕННАЯ КРИТИЧЕСКИ ВАЖНА 👇
             export XBPS_NO_CROSS_INSTALL=1
-            cd /home/builder/void-packages
-            # cd void-packages
+            # cd /home/builder/void-packages
+            cd void-packages
 
             changed="${{ steps.changed.outputs.pkgs }}"
             removed="${{ steps.changed.outputs.removed }}"
