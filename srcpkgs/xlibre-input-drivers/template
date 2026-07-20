@@ -11,7 +11,7 @@ depends="
   xlibre-xf86-input-wacom>=0
 "
 short_desc="XLibre input drivers meta-package"
-homepage="https://github.com/X11Libre/xserver/wiki"
+homepage=""
 license="MIT"
 provides="xorg-input-drivers-${version}_${revision}"
 replaces="xorg-input-drivers>=0"
