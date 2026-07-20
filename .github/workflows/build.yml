@@ -164,11 +164,7 @@ jobs:
           echo "==> copying templates..."
           # Копируем шаблоны пакетов
           cp -rv extra/srcpkgs/* /home/builder/void-packages/srcpkgs/
-
-          # Копируем hooks (только файлы, сохраняя структуру папок)
-          # mkdir -p /home/builder/void-packages/common/hooks/pre-configure
-          # cp -v extra/common/hooks/pre-configure/* /home/builder/void-packages/common/hooks/pre-configure/ 2>/dev/null || true
-
+          
           SHLIBS_FILE="/home/builder/void-packages/common/shlibs"
           APPEND_FILE="extra/shlibs_append"
           REMOVE_FILE="extra/shlibs_remove"
