@@ -183,7 +183,7 @@ jobs:
             # 👇 ВОТ ЭТА ПЕРЕМЕННАЯ КРИТИЧЕСКИ ВАЖНА 👇
             export XBPS_NO_CROSS_INSTALL=1
             cd /home/builder/void-packages
-      #      cd void-packages
+            # cd void-packages
 
             changed="${{ steps.changed.outputs.pkgs }}"
             removed="${{ steps.changed.outputs.removed }}"
@@ -195,9 +195,9 @@ jobs:
                 exit 0
             fi
 
-      #      if [ "$BOOTSTRAP" != "$ARCH" ]; then
-      #          arch="-a $ARCH"
-      #      fi
+            # if [ "$BOOTSTRAP" != "$ARCH" ]; then
+            #    arch="-a $ARCH"
+            # fi
 
             if [ "$BOOTSTRAP" != "$ARCH" ]; then
               arch_flag="-a $ARCH"
