@@ -22,6 +22,8 @@ jobs:
       volumes:
         - /dev:/dev
       env:
+        TAG: '${{ env.TAG }}'
+        SHA: '${{ env.SHA }}'
         ARCH: '${{ matrix.config.arch }}'
         BOOTSTRAP: '${{ matrix.config.host }}'
         TEST: '${{ matrix.config.test }}'
@@ -47,7 +49,7 @@ jobs:
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf
           # install dependencies
-          xbps-install -Syu xbps && xbps-install -yu && xbps-install -y sudo bash curl grep git jq xz zip unzip github-cli xtools
+          xbps-install -Syu xbps && xbps-install -yu && xbps-install -y gawk && xbps-install -y sudo bash curl grep git jq xz zip unzip github-cli xtools
           # create non-root user
           # useradd -G xbuilder -M builder
 
@@ -67,6 +69,7 @@ jobs:
           # prepare home
           mkdir -p /home/builder
           chown builder:builder /home/builder
+          echo "✅ Container prepared: gawk installed globally, user 'builder' created."
 
       - name: 🔧 Install correct cross compilers
         run: |
@@ -137,15 +140,20 @@ jobs:
       - name: Checkout void-packages
         run: |
             git clone --depth 1 https://github.com/void-linux/void-packages.git void-packages
-            cd void-packages
+            cd /home/builder/void-packages
             git checkout --detach master
+
+      #- name: Fix sourcepkg.sh — replace awk with shell parameter expansion
+      #  working-directory: void-packages
+      #  run: |
+      #    sed -i 's@for var in $(awk .*;@for var in $(printenv | cut -d'"'"'='"'"' -f1);@' common/environment/setup/sourcepkg.sh
 
       - name: Merge templates and edit shlibs
         run: |
             echo "==> copying templates..."
-            cp -rv extra/srcpkgs/* void-packages/srcpkgs/
+            cp -rv extra/srcpkgs/* /home/builder/void-packages/srcpkgs/
 
-            SHLIBS_FILE="void-packages/common/shlibs"
+            SHLIBS_FILE="/home/builder/void-packages/common/shlibs"
             APPEND_FILE="extra/shlibs_append"
             REMOVE_FILE="extra/shlibs_remove"
 
@@ -170,7 +178,7 @@ jobs:
 
       - name: Prepare masterdir
         run: |
-            cd void-packages
+            cd /home/builder/void-packages
             chown -R builder:builder . &&
             sudo -Eu builder common/travis/set_mirror.sh &&
             sudo -Eu builder common/travis/prepare.sh &&
@@ -182,8 +190,8 @@ jobs:
             export PATH="/opt/xbps/usr/bin/:$PATH"
             # 👇 ВОТ ЭТА ПЕРЕМЕННАЯ КРИТИЧЕСКИ ВАЖНА 👇
             export XBPS_NO_CROSS_INSTALL=1
-            # cd /home/builder/void-packages
-            cd void-packages
+            cd /home/builder/void-packages
+            # cd void-packages
 
             changed="${{ steps.changed.outputs.pkgs }}"
             removed="${{ steps.changed.outputs.removed }}"
@@ -198,12 +206,6 @@ jobs:
             if [ "$BOOTSTRAP" != "$ARCH" ]; then
                 arch="-a $ARCH"
             fi
-
-            #if [ "$BOOTSTRAP" != "$ARCH" ]; then
-            #  arch_flag="-a $ARCH"
-            # else
-            #  arch_flag=""
-            #fi
 
             if [ "$TEST" = 1 ]; then
                 test="-Q"

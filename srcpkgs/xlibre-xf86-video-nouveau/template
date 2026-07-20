@@ -20,7 +20,7 @@ checksum=bc56f320ba6ce4d068351ac259cdb87571a05e03402afad02352bcb62be7b040
 LDFLAGS="-Wl,-z,lazy"
 
 pre_configure() {
-  ./autogen.sh
+  autoreconf -fi
 }
 
 # post_install() {

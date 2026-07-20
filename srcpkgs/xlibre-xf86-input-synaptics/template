@@ -5,7 +5,7 @@ version=25.0.0
 revision=2
 build_style=gnu-configure
 configure_args="--prefix=/usr"
-hostmakedepends="xlibre-xserver-devel pkg-config xorg-util-macros autoconf automake libtool git gawk"
+hostmakedepends="xlibre-xserver-devel pkg-config xorg-util-macros autoconf automake libtool m4 git gawk"
 makedepends="xlibre-xserver-devel libX11-devel libXtst-devel pixman-devel libpciaccess-devel xorg-util-macros fakeroot gawk gettext m4 pkgconf libevdev-devel"
 depends="virtual?xserver-abi-input-24_1"
 short_desc="XLibre fork of X.Org Synaptics driver for notebook touchpads"
@@ -18,7 +18,7 @@ distfiles="https://github.com/X11Libre/${_pkgname}/archive/refs/tags/${pkgname}-
 checksum=fca6a16ed199505a27dc167e88722b4d45aa5f46e86561d6c6eee3d7a750a107
 
 pre_configure() {
-  ./autogen.sh
+  autoreconf -fi
 }
 
 post_install() {
