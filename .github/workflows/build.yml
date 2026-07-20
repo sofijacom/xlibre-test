@@ -246,51 +246,6 @@ jobs:
           echo "Built packages: ${built:-<none>}"
           echo "Failed packages: ${failed:-<none>}"
 
-      - name: Build
-        id: build_step
-        run: |
-          export PATH="/opt/xbps/usr/bin/:$PATH"
-          export XBPS_NO_CROSS_INSTALL=1
-
-          cd /home/builder/void-packages
-
-          changed="${{ steps.changed.outputs.pkgs }}"
-          removed="${{ steps.changed.outputs.removed }}"
-
-          if [ -z "$changed" ]; then
-            echo "No changed templates, skipping build."
-            echo "built=" >> "$GITHUB_OUTPUT"
-            echo "failed=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$BOOTSTRAP" != "$ARCH" ]; then
-            arch="-a $ARCH"
-          fi
-
-          if [ "$TEST" = 1 ]; then
-            test="-Q"
-          fi
-
-          PKGS=$(sudo -Eu builder ./xbps-src $test sort-dependencies $changed)
-          built=""
-          failed=""
-
-          for pkg in ${PKGS}; do
-            if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch $test pkg "${pkg}"; then
-              built="$built $pkg"
-            else
-              echo "!! build failed for ${pkg}"
-              failed="$failed $pkg"
-            fi
-          done
-
-          built="${built%% }"
-          failed="${failed%% }"
-
-          echo "Built packages: ${built:-<none>}"
-          echo "Failed packages: ${failed:-<none>}"
-
           echo "built=$built" >> "$GITHUB_OUTPUT"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
 
