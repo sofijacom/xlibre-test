@@ -1,4 +1,5 @@
 # Template file for 'xlibre-apps'
+
 pkgname=xlibre-apps
 _pkgname=xorg-apps
 version=25.1.0
@@ -20,4 +21,3 @@ license="Public Domain"
 homepage="https://github.com/X11Libre/xserver/wiki"
 provides="xorg-apps-${version}_${revision}"
 replaces="xorg-apps>=0"
-
