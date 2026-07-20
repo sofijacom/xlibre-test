@@ -77,9 +77,11 @@ jobs:
           mkdir -p /home/builder
           chown builder:builder /home/builder
 
-      - name: 🔧 Install cross compilers (custom names)
+      - name: 🔧 Install correct cross compilers (Void-native names)
         run: |
-          echo "==> Detected ARCH: $ARCH"
+          ARCH="${{ matrix.config.arch }}"
+          echo "==> Target architecture: $ARCH"
+
           case "$ARCH" in
             aarch64)
               pkg="cross-aarch64-linux-gnu"
@@ -87,21 +89,26 @@ jobs:
             aarch64-musl)
               pkg="cross-aarch64-linux-musl"
               ;;
+            i686)
+              pkg="cross-i686-pc-linux-gnu"   # ✅ Это правильное имя для i686
+              ;;
+            x86_64)
+              echo "Native x86_64 build: skipping cross compiler install"
+              exit 0
+              ;;
+            x86_64-musl)
+              pkg="cross-x86_64-linux-musl"
+              ;;
             armv7l)
               pkg="cross-armv7l-linux-gnueabihf"
               ;;
-            i686|x86_64|x86_64-musl)
-              echo "Native or no cross-compiler needed for $ARCH"
-              exit 0
-              ;;
             *)
-              echo "Unknown architecture: $ARCH, skipping"
-              exit 0
+              echo "❌ Unknown architecture '$ARCH': no matching cross compiler package"
+              exit 1
               ;;
           esac
 
           echo "==> Installing cross compiler: $pkg"
-          # Важно: используем --no-confirm, чтобы не ждать ввода
           xbps-install -y "$pkg" || {
             echo "ERROR: Could not install $pkg. Check repo repodata!"
             exit 1
@@ -193,22 +200,49 @@ jobs:
             done < "$APPEND_FILE"
           fi
 
-      - name: Prepare masterdir
+      - name: ⚙️ Prepare masterdir
         run: |
-          cd /home/builder/void-packages
+          VOID_PKGS_DIR="/home/builder/void-packages"
+          # 👇 ВАЖНО: уникальный masterdir для каждой архитектуры!
+          MASTERDIR_DIR="${VOID_PKGS_DIR}/masterdir-${ARCH}"
+
+          if [ ! -d "$VOID_PKGS_DIR" ]; then
+            echo "❌ FATAL: void-packages missing!"
+            exit 1
+          fi
+
+          cd "$VOID_PKGS_DIR" || exit 1
+
+          echo "🔄 Setting mirror..."
           sudo -Eu builder common/travis/set_mirror.sh
-          sudo -Eu builder common/travis/prepare.sh
+
+          echo "🧰 Preparing masterdir for ARCH=$ARCH at $MASTERDIR_DIR..."
+
+          # Создаём или очищаем masterdir под эту архитектуру
+          rm -rf "$MASTERDIR_DIR"
+          mkdir -p "$MASTERDIR_DIR"
+
+          # Передаём MASTERDIR явно в prepare.sh
+          sudo -Eu builder env MASTERDIR="$MASTERDIR_DIR" common/travis/prepare.sh
+
+          echo "⬇️ Fetching xtools..."
           common/travis/fetch-xtools.sh
+
+          echo "✅ Masterdir prepared successfully for $ARCH."
 
       - name: Build
         id: build_step
         run: |
           export PATH="/opt/xbps/usr/bin/:$PATH"
-          cd /home/builder/void-packages
+          export XBPS_NO_CROSS_INSTALL=1
+
+          VOID_PKGS_DIR="/home/builder/void-packages"
+          # Тот же путь, что и в шаге Prepare
+          MASTERDIR_DIR="${VOID_PKGS_DIR}/masterdir-${ARCH}"
+
+          cd "$VOID_PKGS_DIR" || exit 1
 
           changed="${{ steps.changed.outputs.pkgs }}"
-          removed="${{ steps.changed.outputs.removed }}"
-
           if [ -z "$changed" ]; then
             echo "No changed templates, skipping build."
             echo "built=" >> "$GITHUB_OUTPUT"
@@ -217,34 +251,78 @@ jobs:
           fi
 
           if [ "$BOOTSTRAP" != "$ARCH" ]; then
-            arch="-a $ARCH"
+            export ARCH="$ARCH"
+            arch_flag="-a $ARCH"
+
+          case "$ARCH" in
+            aarch64)
+              export HOST_TRIPLET="aarch64-unknown-linux-gnu"
+              ;;
+            aarch64-musl)
+              export HOST_TRIPLET="aarch64-linux-musl"
+              ;;
+            x86_64)
+              export HOST_TRIPLET="x86_64-pc-linux-gnu"
+              ;;
+            x86_64-musl)
+              export HOST_TRIPLET="x86_64-linux-musl"
+              ;;
+            i686)
+              export HOST_TRIPLET="i686-pc-linux-gnu"
+              ;;
+            armv7l)
+              export HOST_TRIPLET="armv7l-unknown-linux-gnueabihf"
+              ;;
+            *)
+              echo "❌ Unknown ARCH=$ARCH"
+              exit 1
+              ;;
+          esac
+
+            echo "🎯 CROSS-COMPILATION: ARCH=$ARCH, HOST_TRIPLET=$HOST_TRIPLET"
+          else
+            unset ARCH
+            arch_flag=""
+            unset HOST_TRIPLET
+            echo "🖥️ NATIVE BUILD"
           fi
 
-          if [ "$TEST" = 1 ]; then
-            test="-Q"
-          fi
-
-          PKGS=$(sudo -Eu builder ./xbps-src $test sort-dependencies $changed)
+          PKGS=$(sudo -Eu builder ./xbps-src sort-dependencies $changed)
           built=""
           failed=""
 
           for pkg in ${PKGS}; do
-            if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch $test pkg "${pkg}"; then
-              built="$built $pkg"
+            echo "🚀 Building: $pkg (Target: ${ARCH:-host})"
+
+            if [ -n "$arch_flag" ]; then
+              # 👇 ГЛАВНОЕ: передаём MASTERDIR, чтобы не трогать кэш x86_64
+              if sudo -Eu builder env ARCH="$ARCH" HOST_TRIPLET="$HOST_TRIPLET" MASTERDIR="$MASTERDIR_DIR" ./xbps-src -j"$(nproc)" -s $arch_flag pkg "${pkg}"; then
+                built="$built $pkg"
+              else
+                echo "!! build failed for ${pkg}"
+                failed="$failed $pkg"
+              fi
             else
-              echo "!! build failed for ${pkg}"
-              failed="$failed $pkg"
+              if sudo -Eu builder ./xbps-src -j"$(nproc)" -s pkg "${pkg}"; then
+                built="$built $pkg"
+              else
+                echo "!! build failed for ${pkg}"
+                failed="$failed $pkg"
+              fi
             fi
           done
 
-          built="${built%% }"
-          failed="${failed%% }"
-
-          echo "Built packages: ${built:-<none>}"
-          echo "Failed packages: ${failed:-<none>}"
-
           echo "built=$built" >> "$GITHUB_OUTPUT"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+          #built="${built%% }"
+          #failed="${failed%% }"
+
+          #echo "Built packages: ${built:-<none>}"
+          #echo "Failed packages: ${failed:-<none>}"
+
+          #echo "built=$built" >> "$GITHUB_OUTPUT"
+          #echo "failed=$failed" >> "$GITHUB_OUTPUT"
 
       - name: 🧾 Clean & sign
         working-directory: /home/builder/void-packages/hostdir/binpkgs
