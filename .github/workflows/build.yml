@@ -252,72 +252,44 @@ jobs:
           export PATH="/opt/xbps/usr/bin/:$PATH"
           export XBPS_NO_CROSS_INSTALL=1
 
-          VOID_PKGS_DIR="/home/builder/void-packages"
-          # Тот же путь, что и в шаге Prepare
-          MASTERDIR_DIR="${VOID_PKGS_DIR}/masterdir-${ARCH}"
-
-          cd "$VOID_PKGS_DIR" || exit 1
+          cd /home/builder/void-packages
 
           changed="${{ steps.changed.outputs.pkgs }}"
+          removed="${{ steps.changed.outputs.removed }}"
+
           if [ -z "$changed" ]; then
             echo "No changed templates, skipping build."
             echo "built=" >> "$GITHUB_OUTPUT"
             echo "failed=" >> "$GITHUB_OUTPUT"
-          exit 0
+            exit 0
           fi
 
-          # Установка HOST_TRIPLET в зависимости от ARCH
-          case "$ARCH" in
-          aarch64)
-           export HOST_TRIPLET="aarch64-unknown-linux-gnu"
-           ;;
-          aarch64-musl)
-           export HOST_TRIPLET="aarch64-linux-musl"
-           ;;
-          x86_64)
-           export HOST_TRIPLET="x86_64-pc-linux-gnu"
-           ;;
-          x86_64-musl)
-           export HOST_TRIPLET="x86_64-linux-musl"
-           ;;
-          i686)
-           export HOST_TRIPLET="i686-pc-linux-gnu"
-           ;;
-          armv7l)
-           export HOST_TRIPLET="armv7l-unknown-linux-gnueabihf"
-           ;;
-          *)
-          echo "❌ Unknown ARCH=$ARCH"
-          exit 1
-           ;;
-          esac
+          if [ "$BOOTSTRAP" != "$ARCH" ]; then
+            arch="-a $ARCH"
+          fi
 
-          echo "🎯 CROSS-COMPILATION: ARCH=$ARCH, HOST_TRIPLET=$HOST_TRIPLET"
+          if [ "$TEST" = 1 ]; then
+            test="-Q"
+          fi
 
-          PKGS=$(sudo -Eu builder ./xbps-src sort-dependencies $changed)
+          PKGS=$(sudo -Eu builder ./xbps-src $test sort-dependencies $changed)
           built=""
           failed=""
 
           for pkg in ${PKGS}; do
-          echo "🚀 Building: $pkg (Target: ${ARCH:-host})"
-
-          if [ -n "$arch_flag" ]; then
-          # 👇 ГЛАВНОЕ: передаём MASTERDIR, чтобы не трогать кэш x86_64
-          if sudo -Eu builder env ARCH="$ARCH" HOST_TRIPLET="$HOST_TRIPLET" MASTERDIR="$MASTERDIR_DIR" ./xbps-src -j"$(nproc)" -s $arch_flag pkg "${pkg}"; then
-          built="$built $pkg"
-          else
-          echo "!! build failed for ${pkg}"
-          failed="$failed $pkg"
-          fi
-          else
-          if sudo -Eu builder ./xbps-src -j"$(nproc)" -s pkg "${pkg}"; then
-          built="$built $pkg"
-          else
-          echo "!! build failed for ${pkg}"
-          failed="$failed $pkg"
-          fi
-          fi
+            if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch $test pkg "${pkg}"; then
+              built="$built $pkg"
+            else
+              echo "!! build failed for ${pkg}"
+              failed="$failed $pkg"
+            fi
           done
+
+          built="${built%% }"
+          failed="${failed%% }"
+
+          echo "Built packages: ${built:-<none>}"
+          echo "Failed packages: ${failed:-<none>}"
 
           echo "built=$built" >> "$GITHUB_OUTPUT"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
