@@ -33,10 +33,10 @@ declare -A skip_pkgs=(
 # Функция: извлекает чистую версию из тега (например, 25.2.1)
 extract_version() {
   local tag="$1"
-  echo "$tag" | \
-    sed -E 's/^(xlibre-|xorg-|xo-|release-|v|xserver-|xorgproto-|util-macros-|xf86-input-|xf86-video-)//i' | \
-    sed -E 's/^(xf86-input-|xf86-video-|xserver-)//i' | \
-    sed 's/_/./g'
+  # Удаляем только общие префиксы: xlibre-, v, release-, xo-, xorg-
+  local clean_tag=$(echo "$tag" | sed -E 's/^(xlibre-|v|release-|xo-|xorg-)//i')
+  # Извлекаем последнюю часть — версию (цифры и точки)
+  echo "$clean_tag" | grep -oE '[0-9]+(\.[0-9]+)*$' || echo ""
 }
 
 # Функция: проверяет, выглядит ли строка как цифровая версия (1.20.2, 25.1.0 и т.д.)
