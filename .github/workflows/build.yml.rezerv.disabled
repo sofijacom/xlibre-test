@@ -1,0 +1,324 @@
+name: "🏗️ Build Latest Packages"
+
+env:
+  TAG: workflow-${{ github.run_number }}
+  SHA: ${{ github.sha }}
+
+on:
+  push:
+    branches:
+        - main
+    paths:
+        - 'srcpkgs/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build packages
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:20250616R1
+      options: --platform ${{ matrix.config.platform }} --privileged
+      volumes:
+        - /dev:/dev
+      env:
+        TAG: '${{ env.TAG }}'
+        SHA: '${{ env.SHA }}'
+        ARCH: '${{ matrix.config.arch }}'
+        BOOTSTRAP: '${{ matrix.config.host }}'
+        TEST: '${{ matrix.config.test }}'
+    strategy:
+      fail-fast: false
+      matrix:
+        config: &build_matrix
+          - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
+          - { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
+          - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
+          # - { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
+          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
+          # - { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
+          - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Prepare container
+        run: |
+          # switch to repo-ci mirror
+          mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
+          sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf
+          # install dependencies
+          xbps-install -Syu xbps && xbps-install -yu && xbps-install -y gawk && xbps-install -y sudo bash curl grep git jq xz zip unzip github-cli xtools
+          # create non-root user
+          # useradd -G xbuilder -M builder
+
+          # qemu-user-static — only on x86_64 host (not on i686)
+          if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "x86_64-musl" ]; then
+            if xbps-query -Rs '^qemu-user-static$' > /dev/null; then
+              xbps-install -y qemu-user-static
+            else
+              echo "⚠️ qemu-user-static not available for this architecture, skipping."
+            fi
+          else
+            echo "⚠️ Not installing qemu-user-static on $ARCH — not needed or not available."
+          fi
+
+          # create non-root user
+          useradd -G xbuilder -M builder -s /bin/bash
+          # prepare home
+          mkdir -p /home/builder
+          chown builder:builder /home/builder
+          echo "✅ Container prepared: gawk installed globally, user 'builder' created."
+
+      - name: 🔧 Install correct cross compilers
+        run: |
+          case "$ARCH" in
+            aarch64)
+              pkg="cross-aarch64-linux-gnu"
+              ;;
+            aarch64-musl)
+              pkg="cross-aarch64-linux-musl"
+              ;;
+            armv7l)
+              pkg="cross-armv7l-linux-gnueabihf"
+              ;;
+            *)
+              echo "Native arch, skipping cross compiler"
+              exit 0
+              ;;
+          esac
+
+          echo "==> Installing: $pkg"
+          xbps-install -y "$pkg"
+
+      - name: Checkout this repo
+        run: |
+            git clone --depth 1 "https://github.com/${{ github.repository }}.git" extra
+            cd extra
+            # we need the previous revision to diff against
+            if [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+                git fetch --no-tags origin "${{ github.event.before }}" --depth 1 || true
+            fi
+            git fetch --no-tags origin "${{ github.sha }}" --depth 1
+            git checkout --detach "${{ github.sha }}"
+
+      - name: Determine changed templates
+        id: changed
+        run: |
+            cd extra
+
+            base="${{ github.event.before }}"
+            tip="${{ github.sha }}"
+
+            if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+                changed_pkgs=$(find srcpkgs -maxdepth 1 -mindepth 1 -type d -printf "%f\n" \
+                  | tr '\n' ' ')
+                removed_pkgs=""
+            else
+                changed_pkgs=$(git diff --name-only "$base" "$tip" --diff-filter=AM -- 'srcpkgs/*/template' \
+                    | cut -d/ -f2 \
+                    | sort -u \
+                    | tr '\n' ' ')
+
+                removed_pkgs=$(git diff --name-status "$base" "$tip" -- 'srcpkgs/*/template' \
+                    | awk '$1=="D"{print $2}' \
+                    | cut -d/ -f2 \
+                    | sort -u \
+                    | tr '\n' ' ')
+            fi
+
+            changed_pkgs="${changed_pkgs%% }"
+            removed_pkgs="${removed_pkgs%% }"
+
+            echo "Changed templates: ${changed_pkgs:-<none>}"
+            echo "Removed templates: ${removed_pkgs:-<none>}"
+
+            echo "pkgs=$changed_pkgs" >> "$GITHUB_OUTPUT"
+            echo "removed=$removed_pkgs" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout void-packages
+        run: |
+            git clone --depth 1 https://github.com/void-linux/void-packages.git void-packages
+            cd /home/builder/void-packages
+            git checkout --detach master
+
+      #- name: Fix sourcepkg.sh — replace awk with shell parameter expansion
+      #  working-directory: void-packages
+      #  run: |
+      #    sed -i 's@for var in $(awk .*;@for var in $(printenv | cut -d'"'"'='"'"' -f1);@' common/environment/setup/sourcepkg.sh
+
+      - name: Merge templates and edit shlibs
+        run: |
+            echo "==> copying templates..."
+            cp -rv extra/srcpkgs/* /home/builder/void-packages/srcpkgs/
+
+            SHLIBS_FILE="/home/builder/void-packages/common/shlibs"
+            APPEND_FILE="extra/shlibs_append"
+            REMOVE_FILE="extra/shlibs_remove"
+
+            echo "==> updating common/shlibs..."
+            if [ -f "$REMOVE_FILE" ]; then
+                while IFS= read -r line; do
+                    [ -z "$line" ] && continue
+                    grep -vF "$line" "$SHLIBS_FILE" > "$SHLIBS_FILE.tmp" && mv "$SHLIBS_FILE.tmp" "$SHLIBS_FILE"
+                    echo "   - removed: $line"
+                done < "$REMOVE_FILE"
+            fi
+
+            if [ -f "$APPEND_FILE" ]; then
+                while IFS= read -r line; do
+                    [ -z "$line" ] && continue
+                    if ! grep -qF "$line" "$SHLIBS_FILE"; then
+                        echo "$line" >> "$SHLIBS_FILE"
+                        echo "   + added: $line"
+                    fi
+                done < "$APPEND_FILE"
+            fi
+
+      - name: Prepare masterdir
+        run: |
+            cd /home/builder/void-packages
+            chown -R builder:builder . &&
+            sudo -Eu builder common/travis/set_mirror.sh &&
+            sudo -Eu builder common/travis/prepare.sh &&
+            common/travis/fetch-xtools.sh
+
+      - name: Build
+        id: build_step
+        run: |
+            export PATH="/opt/xbps/usr/bin/:$PATH"
+            # 👇 ВОТ ЭТА ПЕРЕМЕННАЯ КРИТИЧЕСКИ ВАЖНА 👇
+            export XBPS_NO_CROSS_INSTALL=1
+            cd /home/builder/void-packages
+            # cd void-packages
+
+            changed="${{ steps.changed.outputs.pkgs }}"
+            removed="${{ steps.changed.outputs.removed }}"
+
+            if [ -z "$changed" ]; then
+                echo "No changed templates, skipping build."
+                echo "built=" >> "$GITHUB_OUTPUT"
+                echo "failed=" >> "$GITHUB_OUTPUT"
+                exit 0
+            fi
+
+            if [ "$BOOTSTRAP" != "$ARCH" ]; then
+                arch="-a $ARCH"
+            fi
+
+            if [ "$TEST" = 1 ]; then
+                test="-Q"
+            fi
+
+            PKGS=$(sudo -Eu builder ./xbps-src $test sort-dependencies $changed)
+            built=""
+            failed=""
+
+            for pkg in ${PKGS}; do
+                if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch $test pkg "${pkg}"; then
+                    built="$built $pkg"
+                else
+                    echo "!! build failed for ${pkg}"
+                    failed="$failed $pkg"
+                fi
+            done
+
+            built="${built%% }"
+            failed="${failed%% }"
+
+            echo "Built packages: ${built:-<none>}"
+            echo "Failed packages: ${failed:-<none>}"
+
+            echo "built=$built" >> "$GITHUB_OUTPUT"
+            echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+      - name: 🧾 Clean & sign
+        run: |
+          # Используем абсолютный путь, чтобы не зависеть от текущей директории
+          BINPKGS_DIR="/home/builder/void-packages/hostdir/binpkgs"
+
+          if [ ! -d "$BINPKGS_DIR" ]; then
+            echo "❌ Directory $BINPKGS_DIR does not exist"
+            exit 1
+          fi
+
+          cd "$BINPKGS_DIR" || exit 1
+
+          count=$(ls *.xbps 2>/dev/null | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "❌ No .xbps packages found to sign. Build failed or no changes."
+            exit 1
+          fi
+
+          # Очищаем устаревшие записи
+          sudo -Eu builder xbps-rindex --remove-obsoletes .
+
+          printf "%s\n" "${PRIVKEY}" > key.pem
+
+          # Подписываем репозиторий
+          sudo -Eu builder xbps-rindex \
+            --privkey key.pem \
+            --sign \
+            --signedby "${REPO_NAME}-github-actions" \
+            --verbose .
+
+          # Подписываем сами пакеты
+          sudo -Eu builder xbps-rindex \
+            --privkey key.pem \
+            --sign-pkg \
+            --verbose *.xbps
+
+          sudo -Eu builder rm -f key.pem
+          sudo -Eu builder xbps-rindex --clean .
+        env:
+          PRIVKEY: ${{ secrets.PRIV_KEY }}
+          XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
+          REPO_NAME: ${{ github.event.repository.name }}
+
+      - name: 🔢 Checksum
+        run: |
+          BINPKGS_DIR="/home/builder/void-packages/hostdir/binpkgs"
+
+          if [ ! -d "$BINPKGS_DIR" ]; then
+            echo "❌ Checksum: Directory $BINPKGS_DIR not found"
+            exit 1
+          fi
+
+          cd "$BINPKGS_DIR" || exit 1
+
+          rm -rf *.sha256sum *.sha512sum
+
+          count=$(ls -1 *.xbps 2>/dev/null | wc -l)
+          if [ "$count" != 0 ]; then
+            for file in *.xbps; do
+              sha256sum "${file}" | cut -d ' ' -f 1 > "${file}.sha256sum"
+              sha512sum "${file}" | cut -d ' ' -f 1 > "${file}.sha512sum"
+            done
+            echo "✅ Checksum generated for $count packages"
+          else
+            echo "⚠️ No packages found to checksum."
+          fi
+
+      - name: 📤 Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.config.arch }}-repodata
+          path: /home/builder/void-packages/hostdir/binpkgs
+
+      - name: 🏷️ Short SHA
+        run: |
+          printf "SHORT_SHA=$(git rev-parse --short ${SHA})" >> $GITHUB_ENV
+
+      - name: 🚀 Release
+        uses: softprops/action-gh-release@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          name: ${{ env.SHORT_SHA }}
+          tag_name: ${{ env.TAG }}
+          files: |
+            /home/builder/void-packages/hostdir/binpkgs/*.xbps
+            /home/builder/void-packages/hostdir/binpkgs/*.sig2
+            /home/builder/void-packages/hostdir/binpkgs/*repodata
+          overwrite: true
