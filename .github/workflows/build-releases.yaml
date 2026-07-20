@@ -1,4 +1,4 @@
-name: build-releases 1
+name: build-releases crocc
 
 on:
   push:
