@@ -30,6 +30,7 @@ jobs:
         with:
           token: ${{ secrets.PULL_PUSH }}
           ref: main
+          fetch-depth: 1
 
       # 🧪 2. Проверим, что скрипт есть
       - name: 🔍 Проверить структуру
