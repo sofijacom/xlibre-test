@@ -195,15 +195,15 @@ jobs:
                 exit 0
             fi
 
-            # if [ "$BOOTSTRAP" != "$ARCH" ]; then
-            #    arch="-a $ARCH"
-            # fi
-
             if [ "$BOOTSTRAP" != "$ARCH" ]; then
-              arch_flag="-a $ARCH"
-             else
-              arch_flag=""
+                arch="-a $ARCH"
             fi
+
+            #if [ "$BOOTSTRAP" != "$ARCH" ]; then
+            #  arch_flag="-a $ARCH"
+            # else
+            #  arch_flag=""
+            #fi
 
             if [ "$TEST" = 1 ]; then
                 test="-Q"
