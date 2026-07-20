@@ -7,21 +7,17 @@ env:
 on:
   push:
     branches:
-      - main
+        - main
     paths:
-      - 'srcpkgs/**'
+        - 'srcpkgs/**'
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build:
     name: Build packages
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full  # :20250616R1
+      image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:20250616R1
       options: --platform ${{ matrix.config.platform }} --privileged
       volumes:
         - /dev:/dev
@@ -29,18 +25,15 @@ jobs:
         ARCH: '${{ matrix.config.arch }}'
         BOOTSTRAP: '${{ matrix.config.host }}'
         TEST: '${{ matrix.config.test }}'
-        REPO_NAME: "${{ github.event.repository.name }}"
-        SHA: "${{ github.sha }}"
-        TAG: "build-${{ github.run_number }}"
     strategy:
       fail-fast: false
       matrix:
         config: &build_matrix
-          # - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
+          - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
           - { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
-          - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
-          # - { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
-          # - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
+          # - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
+          - { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
+          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
           # - { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
 
@@ -53,12 +46,10 @@ jobs:
           # switch to repo-ci mirror
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf
-
           # install dependencies
-          xbps-install -Syu xbps && xbps-install -yu
-
-          # base tools
-          xbps-install -y sudo bash curl git jq xz zip unzip github-cli xtools
+          xbps-install -Syu xbps && xbps-install -yu && xbps-install -y sudo bash curl grep git jq xz zip unzip github-cli xtools
+          # create non-root user
+          # useradd -G xbuilder -M builder
 
           # qemu-user-static — only on x86_64 host (not on i686)
           if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "x86_64-musl" ]; then
@@ -76,10 +67,6 @@ jobs:
           # prepare home
           mkdir -p /home/builder
           chown builder:builder /home/builder
-
-      # ------------------------------------------------------------------
-      # ЭТА ЧАСТЬ РЕШАЕТ ОШИБКУ: Could not find package 'cross-aarch64-linux-gnu'
-      # ------------------------------------------------------------------
 
       - name: 🔧 Install correct cross compilers
         run: |
@@ -102,145 +89,138 @@ jobs:
           echo "==> Installing: $pkg"
           xbps-install -y "$pkg"
 
-      # 👇 ЭТОТ ШАГ КРИТИЧЕСКИ ВАЖЕН 👇
-
       - name: Checkout this repo
         run: |
-          git clone --depth 1 "https://github.com/${{ github.repository }}.git" extra
-          cd extra
-          # we need the previous revision to diff against
-          if [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            git fetch --no-tags origin "${{ github.event.before }}" --depth 1 || true
-          fi
-          git fetch --no-tags origin "${{ github.sha }}" --depth 1
-          git checkout --detach "${{ github.sha }}"
+            git clone --depth 1 "https://github.com/${{ github.repository }}.git" extra
+            cd extra
+            # we need the previous revision to diff against
+            if [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+                git fetch --no-tags origin "${{ github.event.before }}" --depth 1 || true
+            fi
+            git fetch --no-tags origin "${{ github.sha }}" --depth 1
+            git checkout --detach "${{ github.sha }}"
 
       - name: Determine changed templates
         id: changed
         run: |
-          cd extra
+            cd extra
 
-          base="${{ github.event.before }}"
-          tip="${{ github.sha }}"
+            base="${{ github.event.before }}"
+            tip="${{ github.sha }}"
 
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            changed_pkgs=$(find srcpkgs -maxdepth 1 -mindepth 1 -type d -printf "%f\n" | tr '\n' ' ')
-            removed_pkgs=""
-          else
-            changed_pkgs=$(git diff --name-only "$base" "$tip" --diff-filter=AM -- 'srcpkgs/*/template' \
-              | cut -d/ -f2 \
-              | sort -u \
-              | tr '\n' ' ')
-            
-            removed_pkgs=$(git diff --name-status "$base" "$tip" -- 'srcpkgs/*/template' \
-              | awk '$1=="D"{print $2}' \
-              | cut -d/ -f2 \
-              | sort -u \
-              | tr '\n' ' ')
-          fi
+            if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+                changed_pkgs=$(find srcpkgs -maxdepth 1 -mindepth 1 -type d -printf "%f\n" \
+                  | tr '\n' ' ')
+                removed_pkgs=""
+            else
+                changed_pkgs=$(git diff --name-only "$base" "$tip" --diff-filter=AM -- 'srcpkgs/*/template' \
+                    | cut -d/ -f2 \
+                    | sort -u \
+                    | tr '\n' ' ')
 
-          changed_pkgs="${changed_pkgs%% }"
-          removed_pkgs="${removed_pkgs%% }"
+                removed_pkgs=$(git diff --name-status "$base" "$tip" -- 'srcpkgs/*/template' \
+                    | awk '$1=="D"{print $2}' \
+                    | cut -d/ -f2 \
+                    | sort -u \
+                    | tr '\n' ' ')
+            fi
 
-          echo "Changed templates: ${changed_pkgs:-<none>}"
-          echo "Removed templates: ${removed_pkgs:-<none>}"
+            changed_pkgs="${changed_pkgs%% }"
+            removed_pkgs="${removed_pkgs%% }"
 
-          echo "pkgs=$changed_pkgs" >> "$GITHUB_OUTPUT"
-          echo "removed=$removed_pkgs" >> "$GITHUB_OUTPUT"
+            echo "Changed templates: ${changed_pkgs:-<none>}"
+            echo "Removed templates: ${removed_pkgs:-<none>}"
+
+            echo "pkgs=$changed_pkgs" >> "$GITHUB_OUTPUT"
+            echo "removed=$removed_pkgs" >> "$GITHUB_OUTPUT"
 
       - name: Checkout void-packages
         run: |
-          git clone --depth 1 https://github.com/void-linux/void-packages.git /home/builder/void-packages
-          cd /home/builder/void-packages
-          git checkout --detach master
-          chown -R builder:builder /home/builder/void-packages
+            git clone --depth 1 https://github.com/void-linux/void-packages.git void-packages
+            cd void-packages
+            git checkout --detach master
 
       - name: Merge templates and edit shlibs
         run: |
-          echo "==> copying templates..."
-          # Копируем шаблоны пакетов
-          cp -rv extra/srcpkgs/* /home/builder/void-packages/srcpkgs/
+            echo "==> copying templates..."
+            cp -rv extra/srcpkgs/* void-packages/srcpkgs/
 
-          SHLIBS_FILE="/home/builder/void-packages/common/shlibs"
-          APPEND_FILE="extra/shlibs_append"
-          REMOVE_FILE="extra/shlibs_remove"
+            SHLIBS_FILE="void-packages/common/shlibs"
+            APPEND_FILE="extra/shlibs_append"
+            REMOVE_FILE="extra/shlibs_remove"
 
-          echo "==> updating common/shlibs..."
-          # Удаляем строки, если есть файл удаления
-          if [ -f "$REMOVE_FILE" ]; then
-            while IFS= read -r line; do
-              [ -z "$line" ] && continue
-              grep -vF "$line" "$SHLIBS_FILE" > "$SHLIBS_FILE.tmp" && mv "$SHLIBS_FILE.tmp" "$SHLIBS_FILE"
-              echo "   - removed: $line"
-            done < "$REMOVE_FILE"
-          fi
-          
-          # Добавляем строки, если есть файл добавления
-          if [ -f "$APPEND_FILE" ]; then
-            while IFS= read -r line; do
-              [ -z "$line" ] && continue
-              if ! grep -qF "$line" "$SHLIBS_FILE"; then
-                echo "$line" >> "$SHLIBS_FILE"
-                echo "   + added: $line"
-              fi
-            done < "$APPEND_FILE"
-          fi
-      # ------------------------------------------------------------------
-      # ЭТА ЧАСТЬ РЕШАЕТ ОШИБКУ: Could not find package 'cross-aarch64-linux-gnu'
-      # ------------------------------------------------------------------
+            echo "==> updating common/shlibs..."
+            if [ -f "$REMOVE_FILE" ]; then
+                while IFS= read -r line; do
+                    [ -z "$line" ] && continue
+                    grep -vF "$line" "$SHLIBS_FILE" > "$SHLIBS_FILE.tmp" && mv "$SHLIBS_FILE.tmp" "$SHLIBS_FILE"
+                    echo "   - removed: $line"
+                done < "$REMOVE_FILE"
+            fi
+
+            if [ -f "$APPEND_FILE" ]; then
+                while IFS= read -r line; do
+                    [ -z "$line" ] && continue
+                    if ! grep -qF "$line" "$SHLIBS_FILE"; then
+                        echo "$line" >> "$SHLIBS_FILE"
+                        echo "   + added: $line"
+                    fi
+                done < "$APPEND_FILE"
+            fi
+
+      - name: Prepare masterdir
+        run: |
+            cd void-packages
+            chown -R builder:builder . &&
+            sudo -Eu builder common/travis/set_mirror.sh &&
+            sudo -Eu builder common/travis/prepare.sh &&
+            common/travis/fetch-xtools.sh
 
       - name: Build
         id: build_step
         run: |
-          export PATH="/opt/xbps/usr/bin/:$PATH"
-          cd /home/builder/void-packages
+            export PATH="/opt/xbps/usr/bin/:$PATH"
+            cd void-packages
 
-          changed="${{ steps.changed.outputs.pkgs }}"
-          removed="${{ steps.changed.outputs.removed }}"
+            changed="${{ steps.changed.outputs.pkgs }}"
+            removed="${{ steps.changed.outputs.removed }}"
 
-          if [ -z "$changed" ]; then
-            echo "No changed templates, skipping build."
-            echo "built=" >> "$GITHUB_OUTPUT"
-            echo "failed=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Если целевая архитектура отличается от хоста, xbps-src сам поймёт, что это кросс-сборка
-          if [ "$BOOTSTRAP" != "$ARCH" ]; then
-            arch_flag="-a $ARCH"
-          else
-            arch_flag=""
-          fi
-
-          if [ "$TEST" = 1 ]; then
-            test_flag="-Q"
-          else
-            test_flag=""
-          fi
-
-          PKGS=$(sudo -Eu builder ./xbps-src $test_flag sort-dependencies $changed)
-          built=""
-          failed=""
-
-          for pkg in ${PKGS}; do
-            # ВАЖНО: никаких CC=... здесь не передаём.
-            # xbps-src сам выставит CC, CXX, HOST_TRIPLET, если видит кросс-сборку
-            if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch_flag $test_flag pkg "${pkg}"; then
-              built="$built $pkg"
-            else
-              echo "!! build failed for ${pkg}"
-              failed="$failed $pkg"
+            if [ -z "$changed" ]; then
+                echo "No changed templates, skipping build."
+                echo "built=" >> "$GITHUB_OUTPUT"
+                echo "failed=" >> "$GITHUB_OUTPUT"
+                exit 0
             fi
-          done
 
-          built="${built%% }"
-          failed="${failed%% }"
+            if [ "$BOOTSTRAP" != "$ARCH" ]; then
+                arch="-a $ARCH"
+            fi
 
-          echo "Built packages: ${built:-<none>}"
-          echo "Failed packages: ${failed:-<none>}"
+            if [ "$TEST" = 1 ]; then
+                test="-Q"
+            fi
 
-          echo "built=$built" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+            PKGS=$(sudo -Eu builder ./xbps-src $test sort-dependencies $changed)
+            built=""
+            failed=""
+
+            for pkg in ${PKGS}; do
+                if sudo -Eu builder ./xbps-src -j"$(nproc)" -s $arch $test pkg "${pkg}"; then
+                    built="$built $pkg"
+                else
+                    echo "!! build failed for ${pkg}"
+                    failed="$failed $pkg"
+                fi
+            done
+
+            built="${built%% }"
+            failed="${failed%% }"
+
+            echo "Built packages: ${built:-<none>}"
+            echo "Failed packages: ${failed:-<none>}"
+
+            echo "built=$built" >> "$GITHUB_OUTPUT"
+            echo "failed=$failed" >> "$GITHUB_OUTPUT"
 
       - name: 🧾 Clean & sign
         run: |
@@ -331,5 +311,3 @@ jobs:
             /home/builder/void-packages/hostdir/binpkgs/*.sig2
             /home/builder/void-packages/hostdir/binpkgs/*repodata
           overwrite: true
-
-          
