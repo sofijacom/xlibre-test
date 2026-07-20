@@ -35,6 +35,7 @@ extract_version() {
   local tag="$1"
   echo "$tag" | \
     sed -E 's/^(xlibre-|xorg-|xo-|release-|v|xserver-|xorgproto-|util-macros-|xf86-input-|xf86-video-)//i' | \
+    sed -E 's/^(xf86-input-|xf86-video-|xserver-)//i' | \
     sed 's/_/./g'
 }
 
