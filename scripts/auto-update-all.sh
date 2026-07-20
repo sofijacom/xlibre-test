@@ -1,5 +1,5 @@
 #!/bin/bash
-#set -euo pipefail
+set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -8,62 +8,64 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(dirname "$0")"
-cd "$SCRIPT_DIR/.." || { echo -e "${RED}❌ Не могу перейти в корень${NC}"; exit 1; }
+cd "$SCRIPT_DIR/.." || { echo -e "${RED}❌ Не могу перейти в корень репозитория${NC}"; exit 1; }
 
 srcpkgs_dir="srcpkgs"
 updated_count=0
 declare -a updated_pkgs
 
-# Исключения
+# Список пакетов, которые НЕ нужно обновлять
 declare -A skip_pkgs=(
   ["xlibre-repo"]=1
-  ["xlibre-xf86-input-evdev-devel"]=1
   ["workflow-helper"]=1
+  # Мета-пакеты — не имеют исходников
+  ["xlibre"]=1  
+  ["xlibre-apps"]=1
+  ["xlibre-minimal"]=1
+  ["xlibre-input-drivers"]=1
+  ["xlibre-video-drivers"]=1
+  # Devel-пакеты — генерируются автоматически
+  ["xlibre-xf86-input-evdev-devel"]=1
+  ["xlibre-xf86-input-libinput-devel"]=1
+  ["xlibre-xf86-input-synaptics-devel"]=1
+  ["xlibre-xf86-input-wacom-devel"]=1
+  ["xlibre-xf86-input-joystick-devel"]=1
 )
 
-# Функция: извлекает версию из тега (например, xlibre-xf86-video-amdgpu-25.1.1 → 25.1.1)
+# Функция: извлекает чистую версию из тега (например, 25.2.1)
 extract_version() {
   local tag="$1"
-  # Убираем префикс вроде xlibre-, xorg-, xo-, release-, v
-  echo "$tag" | sed -E 's/^(xlibre-|xorg-|xo-|release-|v|util-macros-)//i' | sed 's/_/./g'
+  echo "$tag" | \
+    sed -E 's/^(xlibre-|xorg-|xo-|release-|v|xserver-|xf86-input-|xf86-video-|util-macros-|xorgproto-)//i' | \
+    sed 's/_/./g'
 }
 
-# Функция: проверяет, выглядит ли строка как цифровая версия (25.1.1, 1.20.2 и т.д.)
+# Функция: проверяет, выглядит ли строка как цифровая версия (1.20.2, 25.1.0 и т.д.)
 is_valid_version() {
   [[ "$1" =~ ^[0-9]+(\.[0-9]+)*$ ]]
 }
 
-# Функция: получает последний тег из репозитория
-get_latest_tag() {
-  local repo="$1"
-  local tag_url="https://api.github.com/repos/$repo/tags"
-  local tag_data
-  tag_data=$(curl -s -H "Accept: application/vnd.github.v3+json" "$tag_url" | jq -r '.[0].name' 2>/dev/null || echo "")
-  if [[ -n "$tag_data" && "$tag_data" != "null" ]]; then
-    echo "$tag_data"
-  else
-    echo ""
-  fi
-}
-
-# Функция: получает последний релиз
+# Функция: получает последний релиз (tag_name)
 get_latest_release_tag() {
   local repo="$1"
-  local rel_url="https://api.github.com/repos/$repo/releases/latest"
-  local tag_name
-  tag_name=$(curl -s -H "Accept: application/vnd.github.v3+json" "$rel_url" | jq -r '.tag_name' 2>/dev/null || echo "")
-  if [[ -n "$tag_name" && "$tag_name" != "null" ]]; then
-    echo "$tag_name"
-  else
-    echo ""
-  fi
+  local url="https://api.github.com/repos/$repo/releases/latest"
+  curl -s -H "Accept: application/vnd.github.v3+json" "$url" | \
+    jq -r '.tag_name // empty' 2>/dev/null || echo ""
+}
+
+# Функция: получает последний тег (если релизов нет)
+get_latest_tag() {
+  local repo="$1"
+  local url="https://api.github.com/repos/$repo/tags?per_page=1"
+  curl -s -H "Accept: application/vnd.github.v3+json" "$url" | \
+    jq -r '.[0].name // empty' 2>/dev/null || echo ""
 }
 
 # Проход по папкам
 for dir in "$srcpkgs_dir"/*/; do
   pkg_name=$(basename "$dir")
   [[ -d "$dir" ]] || continue
-  [[ -L "$dir" ]] && continue
+  [[ -L "$dir" ]] && continue  # Пропускаем симлинки
   [[ -v skip_pkgs["$pkg_name"] ]] && { echo -e "🛠 [$pkg_name] — исключён — пропускаем"; continue; }
 
   template_file="$dir/template"
@@ -75,18 +77,20 @@ for dir in "$srcpkgs_dir"/*/; do
   echo -e "📦 Обрабатываем: $pkg_name"
   echo -e "   Текущая версия: $current_version"
 
-  # Определяем репозиторий (можно улучшить через _template или _gitrepo)
+  # Определяем репозиторий
+  repo_full=""
   case "$pkg_name" in
-    xlibre-xf86-input-*|xlibre-xf86-video-*|xlibre-util-macros|xlibre-xorgproto)
+    xlibre-xf86-input-*|xlibre-xf86-video-*)
       repo_name=$(echo "$pkg_name" | sed 's/^xlibre-//')
-      repo_owner="X11Libre"
-      if [[ "$repo_name" == "util-macros" || "$repo_name" == "xorgproto" ]]; then
-        repo_owner="X11Libre"
-        repo_name="mirror.fdo.${repo_name}"
-      fi
-      repo_full="$repo_owner/$repo_name"
+      repo_full="X11Libre/$repo_name"
       ;;
-    xlibre-xserver*|xlibre-apps|xlibre-minimal|xlibre-input-drivers|xlibre-video-drivers)
+    xlibre-util-macros)
+      repo_full="X11Libre/mirror.fdo.xorg-macros"
+      ;;
+    xlibre-xorgproto)
+      repo_full="X11Libre/mirror.fdo.xorgproto"
+      ;;
+    xlibre-xserver*|xlibre-xserver-common|xlibre-xserver-devel|xlibre-xserver-xephyr|xlibre-xserver-xnest|xlibre-xserver-xvfb)
       repo_full="X11Libre/xserver"
       ;;
     *)
@@ -95,40 +99,41 @@ for dir in "$srcpkgs_dir"/*/; do
       ;;
   esac
 
+  # Получаем последний тег
   latest_tag=""
-  # Сначала пытаемся взять из релизов
   latest_tag=$(get_latest_release_tag "$repo_full")
-  if [[ -n "$latest_tag" ]]; then
-    echo -e "   🏷️  Найден релизный тег: $latest_tag"
-  else
-    # Если релизов нет — берём последний тег
+  if [[ -z "$latest_tag" ]]; then
     latest_tag=$(get_latest_tag "$repo_full")
-    if [[ -n "$latest_tag" ]]; then
-      echo -e "   🏷️  Последний тег: $latest_tag"
-    else
-      echo -e "${YELLOW}   ⚠️  Не удалось получить тег${NC}"
-      continue
-    fi
   fi
 
-  # Извлекаем чистую версию
+  if [[ -z "$latest_tag" ]]; then
+    echo -e "${YELLOW}   ⚠️  Не удалось получить тег${NC}"
+    continue
+  fi
+
+  echo -e "   🏷️  Найден тег: $latest_tag"
+
+  # Извлекаем версию
   candidate_version=$(extract_version "$latest_tag")
   if ! is_valid_version "$candidate_version"; then
     echo -e "${YELLOW}   ⚠️  Не цифровая версия: $candidate_version — пропускаем${NC}"
     continue
   fi
 
+  # Сравниваем
   if [[ "$candidate_version" == "$current_version" ]]; then
     echo -e "   ✅ Уже актуально: $current_version"
     continue
   fi
 
-  # Обновляем шаблон
+  # Обновляем version в template
   sed -i "s/^version=.*/version=\"$candidate_version\"/" "$template_file"
   echo -e "${GREEN}   ✅ Версия обновлена: $current_version → $candidate_version${NC}"
 
-  # Обновляем URL (если есть)
-  new_url="https://github.com/$repo_owner/${repo_name}/archive/refs/tags/$latest_tag.tar.gz"
+  # Формируем URL архива
+  new_url="https://github.com/$repo_full/archive/refs/tags/$latest_tag.tar.gz"
+
+  # Обновляем distfiles
   if grep -q "^distfiles=" "$template_file"; then
     sed -i "s|^distfiles=.*|distfiles=\"$new_url\"|" "$template_file"
   else
@@ -139,7 +144,7 @@ for dir in "$srcpkgs_dir"/*/; do
   updated_pkgs+=("$pkg_name")
 done
 
-echo -e "${GREEN}✅ Готово: обработано $((updated_count + $(echo ${#skip_pkgs[@]} + $(ls -1 "$srcpkgs_dir"/*/ | wc -l)) )) пакетов${NC}"
+echo -e "${GREEN}✅ Готово: обработано $(ls -1 "$srcpkgs_dir"/*/ | wc -l) пакетов${NC}"
 echo -e "${GREEN}🎉 Успешно обновлено: $updated_count${NC}"
 if [[ $updated_count -gt 0 ]]; then
   echo -e "${BLUE}📝 Изменённые пакеты:${NC}"
