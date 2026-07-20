@@ -16,27 +16,26 @@ declare -a updated_pkgs
 
 # Список пакетов, которые НЕ нужно обновлять
 declare -A skip_pkgs=(
-  ["xlibre-repo"]=1
-  ["workflow-helper"]=1
-  # Мета-пакеты — не имеют исходников
-  ["xlibre"]=1  
   ["xlibre-apps"]=1
   ["xlibre-minimal"]=1
   ["xlibre-input-drivers"]=1
   ["xlibre-video-drivers"]=1
+  ["xlibre-repo"]=1
+  ["workflow-helper"]=1
   # Devel-пакеты — генерируются автоматически
   ["xlibre-xf86-input-evdev-devel"]=1
   ["xlibre-xf86-input-libinput-devel"]=1
   ["xlibre-xf86-input-synaptics-devel"]=1
   ["xlibre-xf86-input-wacom-devel"]=1
   ["xlibre-xf86-input-joystick-devel"]=1
+  ["xlibre"]=1
 )
 
 # Функция: извлекает чистую версию из тега (например, 25.2.1)
 extract_version() {
   local tag="$1"
   echo "$tag" | \
-    sed -E 's/^(xlibre-|xorg-|xo-|release-|v|xserver-|xf86-input-|xf86-video-|util-macros-|xorgproto-)//i' | \
+    sed -E 's/^(xlibre-|xorg-|xo-|release-|v|xserver-|xorgproto-|util-macros-|xf86-input-|xf86-video-)//i' | \
     sed 's/_/./g'
 }
 
@@ -134,7 +133,7 @@ for dir in "$srcpkgs_dir"/*/; do
   new_url="https://github.com/$repo_full/archive/refs/tags/$latest_tag.tar.gz"
 
   # Обновляем distfiles
-  if grep -q "^distfiles=" "$template_file"; then
+  if grep -q "^distfiles=" "$template_file"); then
     sed -i "s|^distfiles=.*|distfiles=\"$new_url\"|" "$template_file"
   else
     sed -i "/^version=.*/a distfiles=\"$new_url\"" "$template_file"
