@@ -28,7 +28,7 @@ jobs:
       - name: 🔁 Checkout xlibre-test
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.PULL_PUSH }}
           ref: main
 
       # 🧪 2. Проверим, что скрипт есть
