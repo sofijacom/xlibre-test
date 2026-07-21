@@ -19,7 +19,7 @@ jobs:
 
       - name: Update Templates
         run: |
-          chmod +x ./scripts/update_templates.sh
+          chmod +x scripts/update_templates.sh
           ./scripts/update_templates.sh
 
       - name: Commit and Push
