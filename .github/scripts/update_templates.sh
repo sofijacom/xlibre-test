@@ -250,19 +250,13 @@ in_case && /^[[:space:]]*esac/ { in_case = 0 }
 # === ОСНОВНАЯ ЛОГИКА ===
 process_template() {
 	local template="$1"
-	local pkgname version distfiles skip gh_repo repo latest_tag latest_version
+	local pkgname version distfiles gh_repo repo latest_tag latest_version
 
 	pkgname="$(template_var "$template" pkgname)"
 	version="$(template_var "$template" version)"
-	skip="$(template_var "$template" skip || true)"
 
 	if [[ -z "$pkgname" || -z "$version" ]]; then
 		echo "Skipping ${template}: missing pkgname/version"
-		return 0
-	fi
-
-	if [[ -n "$skip" ]]; then
-		echo "Skipping ${pkgname}: skip='${skip}'"
 		return 0
 	fi
 
