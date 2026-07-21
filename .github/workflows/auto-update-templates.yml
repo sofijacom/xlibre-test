@@ -19,8 +19,8 @@ jobs:
 
       - name: Update Templates
         run: |
-          chmod +x .github/scripts/update_templates.sh
-          ./.github/scripts/update_templates.sh
+          chmod +x ./scripts/update_templates.sh
+          ./scripts/update_templates.sh
 
       - name: Commit and Push
         shell: bash
