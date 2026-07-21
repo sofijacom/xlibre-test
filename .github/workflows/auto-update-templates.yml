@@ -20,7 +20,7 @@ jobs:
       - name: Update Templates
         run: |
           chmod +x .github/scripts/update_templates.sh
-          export GITHUB_TOKEN=ghp_yourtoken123
+          # export GITHUB_TOKEN=ghp_yourtoken123
           ./.github/scripts/update_templates.sh
 
       - name: Commit and Push
