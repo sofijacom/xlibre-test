@@ -110,7 +110,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: masterdir-${{ matrix.arch }}
-          key: masterdir-${{ matrix.arch }}-v8
+          key: masterdir-${{ matrix.arch }}-v9
           restore-keys: |
             masterdir-${{ matrix.arch }}-
 
@@ -121,11 +121,6 @@ jobs:
       - name: Checkout void-packages
         run: |
           git clone --depth=1 https://github.com/void-linux/void-packages.git void-packages
-
-      - name: Debug: Check void-packages contents
-        run: |
-          ls -la void-packages/
-          [ -f void-packages/xbps-src ] || (echo "❌ Файл xbps-src не найден!" && exit 1)
 
       - name: Restore masterdir from cache
         if: steps.cache-masterdir.outputs.cache-hit == 'true'
@@ -162,17 +157,18 @@ jobs:
 
       - name: Bootstrap masterdir
         run: |
-          cd void-packages
-          [ -d masterdir-${{ matrix.arch }} ] || su - builder -c "./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} binary-bootstrap"
+          su - builder -c "cd /github/workspace/void-packages && \
+            [ -d masterdir-${{ matrix.arch }} ] || \
+            ./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} binary-bootstrap"
 
       - name: Build package
         run: |
-          cd void-packages
-          echo "🏗️ Собираем $PKG для $ARCH..."
-          if ! su - builder -c "./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} pkg \"$PKG\""; then
-            echo "❌ Ошибка сборки $PKG"
-            exit 1
-          fi
+          su - builder -c "cd /github/workspace/void-packages && \
+            echo '🏗️ Собираем $PKG для $ARCH...' && \
+            if ! ./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} pkg '$PKG'; then \
+              echo '❌ Ошибка сборки $PKG'; \
+              exit 1; \
+            fi"
 
       - name: Save masterdir to cache
         uses: actions/cache/save@v5
