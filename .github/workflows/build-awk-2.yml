@@ -6,11 +6,6 @@ env:
 
 on:
   workflow_dispatch:
-    inputs:
-      force_build:
-        type: boolean
-        description: "Принудительно запустить сборку (даже без изменений)"
-        default: false
   push:
     branches:
       - main
@@ -26,7 +21,7 @@ jobs:
   # 1. DETECT: Определяем, какие пакеты изменились
   # ─────────────────────────────────────────────────────────────
   detect:
-    name: 🔍 Detect Changes (DEBUG)
+    name: 🔍 Detect Changes
     runs-on: ubuntu-latest
     outputs:
       has_changes: ${{ steps.changes.outputs.has_changes }}
@@ -38,51 +33,30 @@ jobs:
           fetch-depth: 0
           path: repo
 
-      - name: Force build enabled?
-        if: ${{ github.event.inputs.force_build }}
-        run: |
-          echo "⚠️ Принудительная сборка включена"
-          echo "has_changes=true" >> $GITHUB_OUTPUT
-          echo "matrix=[{\"package\":\"test\"}]" >> $GITHUB_OUTPUT
-          exit 0
-
-      - name: Show current SHA
-        run: |
-          echo "🔍 Текущий SHA: ${{ env.SHA }}"
-          cd repo
-          echo "📦 Последние коммиты:"
-          git log --oneline -5
-
-      - name: Determine base SHA
-        id: base_sha
+      - name: Find latest tag SHA
+        id: latest
         run: |
           cd repo
           latest_tag=$(git tag --list "workflow-*" | sort -V | tail -n1)
-          echo "🏷️ Последний тег: $latest_tag"
-
           if [ -n "$latest_tag" ]; then
-            base_sha=$(git rev-list --max-count=1 "$latest_tag")
-            echo "✅ Найден тег: $latest_tag → $base_sha"
+            sha=$(git rev-list --max-count=1 "$latest_tag")
+            echo "BASE_SHA=$sha" >> $GITHUB_ENV
+            echo "🏷️ Найден тег: $latest_tag → $sha"
           else
-            base_sha=$(git rev-list --max-parents=0 HEAD)
-            echo "🌀 Нет тегов, используем первый коммит: $base_sha"
+            sha=$(git rev-list --max-parents=0 HEAD)
+            echo "BASE_SHA=$sha" >> $GITHUB_ENV
+            echo "🌀 Нет тегов, используем первый коммит: $sha"
           fi
-          echo "BASE_SHA=$base_sha" >> $GITHUB_ENV
 
-      - name: Find changed packages
+      - name: Detect changed packages
         id: changes
         run: |
           cd repo
-          echo "🔍 Ищем изменения между $BASE_SHA и ${{ env.SHA }} в srcpkgs/**"
+          echo "🔍 Ищем изменения между $BASE_SHA и ${{ env.SHA }}"
 
-          # Покажем, что видит diff
-          echo "📄 git diff-tree:"
-          git diff-tree -r --no-renames --name-only --diff-filter=AM $BASE_SHA ${{ env.SHA }} -- 'srcpkgs/**' || echo "❌ Нет diff"
-
+          # Исправлено: git diff-tree с правильным путём
           changed=$(git diff-tree -r --no-renames --name-only --diff-filter=AM \
             $BASE_SHA ${{ env.SHA }} -- 'srcpkgs/**' | cut -d/ -f2 | sort -u)
-
-          echo "📦 Изменённые пакеты: [$changed]"
 
           if [ -z "$changed" ]; then
             echo "❌ Нет изменений в srcpkgs/"
@@ -91,11 +65,12 @@ jobs:
             exit 0
           fi
 
+          echo "✅ Изменены: $changed"
+
           # Формируем JSON
           matrix="["
           first=true
           for pkg in $changed; do
-            echo "➕ Добавляем пакет: $pkg"
             if [ "$first" = true ]; then
               first=false
             else
@@ -105,14 +80,8 @@ jobs:
           done
           matrix="$matrix]"
 
-          echo "✅ matrix = $matrix"
           echo "has_changes=true" >> $GITHUB_OUTPUT
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
-
-      - name: Debug: Final outputs
-        run: |
-          echo "🔹 [DEBUG] has_changes: ${{ steps.changes.outputs.has_changes }}"
-          echo "🔹 [DEBUG] matrix: ${{ steps.changes.outputs.matrix }}"
 
   # ─────────────────────────────────────────────────────────────
   # 2. BUILD: Собираем пакеты
@@ -130,7 +99,7 @@ jobs:
           - config: { arch: x86_64-musl, libc: musl,  platform: linux/amd64 }
         package: ${{ fromJson(needs.detect.outputs.matrix) }}
     container:
-      image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:20250616R1
+      image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:latest
       options: --platform ${{ matrix.config.platform }} --privileged
       volumes:
         - /dev:/dev
@@ -143,7 +112,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: masterdir-${{ matrix.config.arch }}
-          key: masterdir-${{ matrix.config.arch }}-${{ hashFiles('common/xbps-src/shlibs') }}
+          key: masterdir-${{ matrix.config.arch }}-v1
           restore-keys: |
             masterdir-${{ matrix.config.arch }}-
 
@@ -260,7 +229,6 @@ jobs:
           xbps-rindex --privkey key.pem --sign-pkg --verbose *.xbps
           rm -f key.pem
 
-          # Checksums
           for file in *.xbps; do
             sha256sum "$file" | cut -d' ' -f1 > "$file.sha256sum"
             sha512sum "$file" | cut -d' ' -f1 > "$file.sha512sum"
@@ -274,7 +242,7 @@ jobs:
           path: binpkgs/
 
   # ─────────────────────────────────────────────────────────────
-  # 4. RELEASE: Создаём GitHub Release
+  # 4. RELEASE: Создаём релиз
   # ─────────────────────────────────────────────────────────────
   release:
     name: 🚀 Create Release
@@ -288,8 +256,10 @@ jobs:
         run: |
           total=0
           for arch in x86_64 x86_64-musl; do
-            count=$(ls signed-repo-$arch/*.xbps 2>/dev/null | wc -l || echo 0)
-            total=$((total + count))
+            if [ -d "signed-repo-$arch" ]; then
+              count=$(ls signed-repo-$arch/*.xbps 2>/dev/null | wc -l || echo 0)
+              total=$((total + count))
+            fi
           done
           if [ $total -gt 0 ]; then
             echo "any_packages=true" >> $GITHUB_OUTPUT
@@ -308,7 +278,7 @@ jobs:
       - name: Generate changelog
         if: steps.any-built.outputs.any_packages == 'true'
         run: |
-          echo "## 📝 Изменения в ${{ env.SHA }}" > diff.md
+          echo "## 📝 Changes in ${{ env.SHA }}" > diff.md
           git -C repo log --oneline ${{ env.SHA }}^..${{ env.SHA }} -- 'srcpkgs/**' >> diff.md
 
       - name: Create GitHub Release
