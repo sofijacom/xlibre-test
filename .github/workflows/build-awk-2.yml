@@ -110,7 +110,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: masterdir-${{ matrix.arch }}
-          key: masterdir-${{ matrix.arch }}-v4
+          key: masterdir-${{ matrix.arch }}-v5
           restore-keys: |
             masterdir-${{ matrix.arch }}-
 
@@ -126,10 +126,10 @@ jobs:
         run: |
           mv masterdir-${{ matrix.arch }} void-packages/
 
-      - name: Install git and dependencies
+      - name: Install required tools
         run: |
-          # Устанавливаем git, gawk, wget — всё, что нужно для работы
-          sudo xbps-install -Sy sudo bash curl grep jq git gawk wget xz github-cli xtools coreutils
+          # Мы уже root — sudo не нужен
+          xbps-install -Sy git gawk wget xz bash curl grep jq github-cli xtools coreutils
 
       - name: Merge custom srcpkgs
         run: |
