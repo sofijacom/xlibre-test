@@ -110,13 +110,13 @@ jobs:
         uses: actions/cache@v5
         with:
           path: masterdir-${{ matrix.arch }}
-          key: masterdir-${{ matrix.arch }}-v7
+          key: masterdir-${{ matrix.arch }}-v8
           restore-keys: |
             masterdir-${{ matrix.arch }}-
 
       - name: Install required tools
         run: |
-          xbps-install -Sy git gawk wget xz bash curl grep jq github-cli xtools coreutils
+          xbps-install -Sy git gawk wget xz bash curl grep jq github-cli xtools coreutils shadow
 
       - name: Checkout void-packages
         run: |
@@ -151,8 +151,8 @@ jobs:
       - name: Setup builder user
         run: |
           cd void-packages
-          getent group builder || addgroup builder
-          getent passwd builder || adduser -S -g '' -G builder builder
+          getent group builder || groupadd builder
+          getent passwd builder || useradd -s /bin/sh -m -g builder -G wheel builder
           chown -R builder:builder masterdir-${{ matrix.arch }} || true
 
       - name: Bootstrap masterdir
