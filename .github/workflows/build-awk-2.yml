@@ -94,14 +94,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: x86_64
-            image: ghcr.io/void-linux/void-glibc-full:latest
-          - arch: x86_64-musl
-            image: ghcr.io/void-linux/void-musl-full:latest
+        # Собираем в одном контейнере — но для разных архитектур
+        arch:
+          - x86_64
+          - x86_64-musl
         package: ${{ fromJson(needs.detect.outputs.matrix) }}
     container:
-      image: ${{ matrix.image }}
+      # Используем ТОЛЬКО glibc-образ, чтобы GitHub Actions работал
+      image: ghcr.io/void-linux/void-glibc-full:latest
       options: --privileged
     env:
       ARCH: ${{ matrix.arch }}
@@ -112,7 +112,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: masterdir-${{ matrix.arch }}
-          key: masterdir-${{ matrix.arch }}-v2
+          key: masterdir-${{ matrix.arch }}-v3
           restore-keys: |
             masterdir-${{ matrix.arch }}-
 
@@ -152,6 +152,7 @@ jobs:
       - name: Bootstrap masterdir
         run: |
           cd void-packages
+          # Скачиваем базовую систему для нужной архитектуры
           [ -d masterdir-${{ matrix.arch }} ] || sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} binary-bootstrap
 
       - name: Build package
@@ -176,6 +177,7 @@ jobs:
           name: binpkgs-${{ matrix.arch }}
           path: void-packages/hostdir/binpkgs
           if-no-files-found: ignore
+
           
   # ─────────────────────────────────────────────────────────────
   # 3. SIGN: Подписываем репозиторий
