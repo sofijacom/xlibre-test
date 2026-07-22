@@ -101,6 +101,8 @@ jobs:
     container:
       image: ghcr.io/void-linux/void-glibc-full:latest
       options: --privileged
+      volumes:
+        - ${{ github.workspace }}:/github/workspace
     env:
       ARCH: ${{ matrix.arch }}
       PKG: ${{ matrix.package.package }}
@@ -110,7 +112,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: masterdir-${{ matrix.arch }}
-          key: masterdir-${{ matrix.arch }}-v9
+          key: masterdir-${{ matrix.arch }}-v10
           restore-keys: |
             masterdir-${{ matrix.arch }}-
 
