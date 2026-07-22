@@ -129,7 +129,7 @@ jobs:
       - name: Install git and dependencies
         run: |
           # Устанавливаем git, gawk, wget — всё, что нужно для работы
-          sudo xbps-install -Sy git gawk wget xz
+          sudo xbps-install -Sy sudo bash curl grep jq git gawk wget xz github-cli xtools coreutils
 
       - name: Merge custom srcpkgs
         run: |
