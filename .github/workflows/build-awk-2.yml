@@ -115,11 +115,9 @@ jobs:
             masterdir-${{ matrix.arch }}-
 
       - name: Checkout void-packages
-        uses: actions/checkout@v6
-        with:
-          repository: void-linux/void-packages
-          ref: master
-          path: void-packages
+        run: |
+          # Полностью клонируем void-packages в нужную папку
+          git clone --depth=1 https://github.com/void-linux/void-packages.git void-packages
 
       - name: Restore masterdir from cache
         if: steps.cache-masterdir.outputs.cache-hit == 'true'
