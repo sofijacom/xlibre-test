@@ -93,7 +93,7 @@ jobs:
       matrix:
         include:
           - config: { arch: x86_64,       libc: glibc, platform: linux/amd64 }
-          - config: { arch: x86_64-musl, libc: musl,  platform: linux/amd64 }
+          #- config: { arch: x86_64-musl, libc: musl,  platform: linux/amd64 }
         package: ${{ fromJson(needs.detect.outputs.matrix) }}
     container:
       image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:20250616R1
