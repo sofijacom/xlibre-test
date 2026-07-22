@@ -110,14 +110,24 @@ jobs:
         uses: actions/cache@v5
         with:
           path: masterdir-${{ matrix.arch }}
-          key: masterdir-${{ matrix.arch }}-v5
+          key: masterdir-${{ matrix.arch }}-v6
           restore-keys: |
             masterdir-${{ matrix.arch }}-
 
+      - name: Install required tools
+        run: |
+          # Устанавливаем git ДО того, как его использовать
+          xbps-install -Sy git gawk wget xz bash curl grep jq github-cli xtools coreutils
+
       - name: Checkout void-packages
         run: |
-          # Полностью клонируем void-packages в нужную папку
+          # Теперь git есть — можно клонировать
           git clone --depth=1 https://github.com/void-linux/void-packages.git void-packages
+
+      - name: Restore masterdir from cache
+        if: steps.cache-masterdir.outputs.cache-hit == 'true'
+        run: |
+          mv masterdir-${{ matrix.arch }} void-packages/
 
       - name: Merge custom srcpkgs
         run: |
