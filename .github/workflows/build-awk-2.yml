@@ -29,8 +29,8 @@ jobs:
     name: 🔍 Detect Changes
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-      has_changes: ${{ steps.set-matrix.outputs.has_changes }}
+      matrix: ${{ steps.changes.outputs.matrix }}
+      has_changes: ${{ steps.changes.outputs.has_changes }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v6
@@ -68,7 +68,6 @@ jobs:
           cd repo
           echo "🔍 Ищем изменения между $BASE_SHA и ${{ env.SHA }} в srcpkgs/**"
 
-          # Используем --no-commit-id, чтобы не было пустых строк
           changed=$(git diff-tree -r --no-renames --name-only --diff-filter=AM \
             $BASE_SHA ${{ env.SHA }} -- 'srcpkgs/**' | cut -d/ -f2 | sort -u)
 
@@ -81,7 +80,6 @@ jobs:
 
           echo "✅ Изменены пакеты: $changed"
 
-          # Формируем JSON
           matrix="["
           first=true
           for pkg in $changed; do
