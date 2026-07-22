@@ -119,16 +119,6 @@ jobs:
           # Полностью клонируем void-packages в нужную папку
           git clone --depth=1 https://github.com/void-linux/void-packages.git void-packages
 
-      - name: Restore masterdir from cache
-        if: steps.cache-masterdir.outputs.cache-hit == 'true'
-        run: |
-          mv masterdir-${{ matrix.arch }} void-packages/
-
-      - name: Install required tools
-        run: |
-          # Мы уже root — sudo не нужен
-          xbps-install -Sy git gawk wget xz bash curl grep jq github-cli xtools coreutils
-
       - name: Merge custom srcpkgs
         run: |
           cd void-packages
