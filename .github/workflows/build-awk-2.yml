@@ -26,11 +26,11 @@ jobs:
   # 1. DETECT: Определяем, какие пакеты изменились
   # ─────────────────────────────────────────────────────────────
   detect:
-    name: 🔍 Detect Changes
+    name: 🔍 Detect Changes (DEBUG)
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.changes.outputs.matrix }}
       has_changes: ${{ steps.changes.outputs.has_changes }}
+      matrix: ${{ steps.changes.outputs.matrix }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v6
@@ -43,23 +43,30 @@ jobs:
         run: |
           echo "⚠️ Принудительная сборка включена"
           echo "has_changes=true" >> $GITHUB_OUTPUT
-          echo "matrix=[{\"package\":\"*\"}]" >> $GITHUB_OUTPUT
+          echo "matrix=[{\"package\":\"test\"}]" >> $GITHUB_OUTPUT
           exit 0
+
+      - name: Show current SHA
+        run: |
+          echo "🔍 Текущий SHA: ${{ env.SHA }}"
+          cd repo
+          echo "📦 Последние коммиты:"
+          git log --oneline -5
 
       - name: Determine base SHA
         id: base_sha
         run: |
           cd repo
           latest_tag=$(git tag --list "workflow-*" | sort -V | tail -n1)
-          
+          echo "🏷️ Последний тег: $latest_tag"
+
           if [ -n "$latest_tag" ]; then
             base_sha=$(git rev-list --max-count=1 "$latest_tag")
-            echo "Найден тег: $latest_tag → $base_sha"
+            echo "✅ Найден тег: $latest_tag → $base_sha"
           else
             base_sha=$(git rev-list --max-parents=0 HEAD)
-            echo "Нет тегов, используем первый коммит: $base_sha"
+            echo "🌀 Нет тегов, используем первый коммит: $base_sha"
           fi
-          
           echo "BASE_SHA=$base_sha" >> $GITHUB_ENV
 
       - name: Find changed packages
@@ -68,8 +75,14 @@ jobs:
           cd repo
           echo "🔍 Ищем изменения между $BASE_SHA и ${{ env.SHA }} в srcpkgs/**"
 
+          # Покажем, что видит diff
+          echo "📄 git diff-tree:"
+          git diff-tree -r --no-renames --name-only --diff-filter=AM $BASE_SHA ${{ env.SHA }} -- 'srcpkgs/**' || echo "❌ Нет diff"
+
           changed=$(git diff-tree -r --no-renames --name-only --diff-filter=AM \
             $BASE_SHA ${{ env.SHA }} -- 'srcpkgs/**' | cut -d/ -f2 | sort -u)
+
+          echo "📦 Изменённые пакеты: [$changed]"
 
           if [ -z "$changed" ]; then
             echo "❌ Нет изменений в srcpkgs/"
@@ -78,11 +91,11 @@ jobs:
             exit 0
           fi
 
-          echo "✅ Изменены пакеты: $changed"
-
+          # Формируем JSON
           matrix="["
           first=true
           for pkg in $changed; do
+            echo "➕ Добавляем пакет: $pkg"
             if [ "$first" = true ]; then
               first=false
             else
@@ -92,13 +105,14 @@ jobs:
           done
           matrix="$matrix]"
 
+          echo "✅ matrix = $matrix"
           echo "has_changes=true" >> $GITHUB_OUTPUT
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
 
-      - name: Debug: Result
+      - name: Debug: Final outputs
         run: |
-          echo "🔹 has_changes: ${{ steps.changes.outputs.has_changes }}"
-          echo "🔹 matrix: ${{ steps.changes.outputs.matrix }}"
+          echo "🔹 [DEBUG] has_changes: ${{ steps.changes.outputs.has_changes }}"
+          echo "🔹 [DEBUG] matrix: ${{ steps.changes.outputs.matrix }}"
 
   # ─────────────────────────────────────────────────────────────
   # 2. BUILD: Собираем пакеты
