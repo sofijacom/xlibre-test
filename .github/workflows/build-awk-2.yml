@@ -87,7 +87,7 @@ jobs:
   # 2. BUILD: Собираем пакеты
   # ─────────────────────────────────────────────────────────────
   build:
-    name: 🛠️ Build ${{ matrix.package.package }} (${{ matrix.config.arch }})
+    name: 🛠️ Build ${{ matrix.package.package }} (${{ matrix.arch }})
     needs: detect
     if: ${{ needs.detect.outputs.has_changes == 'true' }}
     runs-on: ubuntu-latest
@@ -96,10 +96,13 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            libc: glibc
+            image: ghcr.io/void-linux/void-glibc-full:latest
           - arch: x86_64-musl
-            libc: musl
+            image: ghcr.io/void-linux/void-musl-full:latest
         package: ${{ fromJson(needs.detect.outputs.matrix) }}
+    container:
+      image: ${{ matrix.image }}
+      options: --privileged
     env:
       ARCH: ${{ matrix.arch }}
       PKG: ${{ matrix.package.package }}
@@ -109,7 +112,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: masterdir-${{ matrix.arch }}
-          key: masterdir-${{ matrix.arch }}-v1
+          key: masterdir-${{ matrix.arch }}-v2
           restore-keys: |
             masterdir-${{ matrix.arch }}-
 
@@ -142,20 +145,20 @@ jobs:
           mkdir -p etc
           echo XBPS_BUILD_ENVIRONMENT=void-packages-ci >> etc/conf
           echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
-          echo XBPS_CHROOT_CMD=proot >> etc/conf
+          echo XBPS_CHROOT_CMD=uchroot >> etc/conf
           echo 'XBPS_REPOSITORY=$PWD/hostdir/binpkgs' >> etc/conf
           echo 'XBPS_DISTDIR=$PWD/hostdir/distfiles' >> etc/conf
 
       - name: Bootstrap masterdir
         run: |
           cd void-packages
-          [ -d masterdir-${{ matrix.arch }} ] || ./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} binary-bootstrap
+          [ -d masterdir-${{ matrix.arch }} ] || sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} binary-bootstrap
 
       - name: Build package
         run: |
           cd void-packages
           echo "🏗️ Собираем $PKG для $ARCH..."
-          if ! ./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} pkg "$PKG"; then
+          if ! sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} pkg "$PKG"; then
             echo "❌ Ошибка сборки $PKG"
             exit 1
           fi
