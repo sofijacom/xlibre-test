@@ -110,18 +110,16 @@ jobs:
         uses: actions/cache@v5
         with:
           path: masterdir-${{ matrix.arch }}
-          key: masterdir-${{ matrix.arch }}-v6
+          key: masterdir-${{ matrix.arch }}-v7
           restore-keys: |
             masterdir-${{ matrix.arch }}-
 
       - name: Install required tools
         run: |
-          # Устанавливаем git ДО того, как его использовать
           xbps-install -Sy git gawk wget xz bash curl grep jq github-cli xtools coreutils
 
       - name: Checkout void-packages
         run: |
-          # Теперь git есть — можно клонировать
           git clone --depth=1 https://github.com/void-linux/void-packages.git void-packages
 
       - name: Restore masterdir from cache
@@ -150,16 +148,23 @@ jobs:
           echo 'XBPS_REPOSITORY=$PWD/hostdir/binpkgs' >> etc/conf
           echo 'XBPS_DISTDIR=$PWD/hostdir/distfiles' >> etc/conf
 
+      - name: Setup builder user
+        run: |
+          cd void-packages
+          getent group builder || addgroup builder
+          getent passwd builder || adduser -S -g '' -G builder builder
+          chown -R builder:builder masterdir-${{ matrix.arch }} || true
+
       - name: Bootstrap masterdir
         run: |
           cd void-packages
-          [ -d masterdir-${{ matrix.arch }} ] || sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} binary-bootstrap
+          [ -d masterdir-${{ matrix.arch }} ] || su - builder -c "./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} binary-bootstrap"
 
       - name: Build package
         run: |
           cd void-packages
           echo "🏗️ Собираем $PKG для $ARCH..."
-          if ! sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} pkg "$PKG"; then
+          if ! su - builder -c "./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} pkg \"$PKG\""; then
             echo "❌ Ошибка сборки $PKG"
             exit 1
           fi
