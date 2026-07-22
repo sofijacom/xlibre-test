@@ -5,7 +5,7 @@ version=25.0.0
 revision=2
 build_style=gnu-configure
 configure_args="--prefix=/usr --enable-vmwarectrl-client"
-hostmakedepends="xlibre-xserver-devel pkg-config xorg-util-macros autoconf automake libtool git gawk"
+hostmakedepends="pkg-config xorg-util-macros autoconf automake libtool git gawk"
 makedepends="xlibre-xserver-devel libdrm-devel MesaLib-devel xorgproto fakeroot gawk gettext pkgconf"
 depends="virtual?xserver-abi-video-25_1 mesa-dri"
 short_desc="XLibre fork of X.org vmware video driver"
@@ -20,7 +20,7 @@ checksum=5aabf5932fe071c21f621a5bfa5bc93523cbd6ef10cef5f3ecf89bf0ea66bbb4
 LDFLAGS="-Wl,-z,lazy"
 
 pre_configure() {
-  autoreconf -fi
+  ./autogen.sh
 }
 
 post_install() {

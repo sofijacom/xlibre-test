@@ -10,7 +10,7 @@ maintainer="Sofiya <sofiya@v.com>"
 license="MIT"
 provides="xorg-video-drivers-${version}_${revision}"
 replaces="xorg-video-drivers>=0"
-homepage=""
+homepage="https://github.com/X11Libre/xserver/wiki"
 
 case "$XBPS_TARGET_MACHINE" in
 	i686*|x86_64*) depends+=" xlibre-xf86-video-vesa xlibre-xf86-video-vmware" ;;
@@ -20,4 +20,3 @@ case "$XBPS_TARGET_MACHINE" in
 	armv[56]*|aarch64*|mips*) ;;
 	*) depends+=" xlibre-xf86-video-ati xlibre-xf86-video-amdgpu xlibre-xf86-video-nouveau" ;;
 esac
-

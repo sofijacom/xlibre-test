@@ -8,7 +8,6 @@ depends="xorg-fonts xlibre-xserver xlibre-apps xlibre-input-drivers xlibre-video
 short_desc="XLibre meta-package containing all essential packages for a easy to use installation"
 maintainer="Sofiya <sofiya@v.com>"
 license="MIT"
-homepage=""
+homepage="https://github.com/X11Libre/xserver/wiki"
 provides="xorg-${version}_${revision}"
 replaces="xorg>=0"
-

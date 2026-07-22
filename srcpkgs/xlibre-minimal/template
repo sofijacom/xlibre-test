@@ -13,7 +13,9 @@ depends="
   xinit
 "
 short_desc="Xlibre meta-package including xlibre-xserver and needed tools"
+homepage="https://github.com/X11Libre/xserver/wiki"
 maintainer="Sofiya <sofiya@v.com>"
 license="MIT"
 provides="xorg-minimal-${version}_${revision}"
 replaces="xorg-minimal>=0"
+

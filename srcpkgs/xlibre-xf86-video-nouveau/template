@@ -5,7 +5,7 @@ version=25.0.0
 revision=2
 build_style=gnu-configure
 configure_args="--prefix=/usr"
-hostmakedepends="xlibre-xserver-devel pkg-config xorg-util-macros autoconf automake libtool git"
+hostmakedepends="pkg-config xorg-util-macros autoconf automake libtool git"
 makedepends="xlibre-xserver-devel libdrm-devel eudev-libudev-devel xorgproto fakeroot gawk gettext pkgconf"
 depends="virtual?xserver-abi-video-25_1 mesa-dri"
 short_desc="XLibre fork NVIDIA video driver"
@@ -20,7 +20,7 @@ checksum=bc56f320ba6ce4d068351ac259cdb87571a05e03402afad02352bcb62be7b040
 LDFLAGS="-Wl,-z,lazy"
 
 pre_configure() {
-  autoreconf -fi
+  ./autogen.sh
 }
 
 # post_install() {
