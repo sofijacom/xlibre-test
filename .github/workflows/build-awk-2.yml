@@ -95,26 +95,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - config: { arch: x86_64,       libc: glibc, platform: linux/amd64 }
-          - config: { arch: x86_64-musl, libc: musl,  platform: linux/amd64 }
+          - arch: x86_64
+            libc: glibc
+          - arch: x86_64-musl
+            libc: musl
         package: ${{ fromJson(needs.detect.outputs.matrix) }}
-    container:
-      image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:latest
-      options: --platform ${{ matrix.config.platform }} --privileged
-      volumes:
-        - /dev:/dev
     env:
-      ARCH: ${{ matrix.config.arch }}
+      ARCH: ${{ matrix.arch }}
       PKG: ${{ matrix.package.package }}
     steps:
       - name: Cache masterdir
         id: cache-masterdir
         uses: actions/cache@v5
         with:
-          path: masterdir-${{ matrix.config.arch }}
-          key: masterdir-${{ matrix.config.arch }}-v1
+          path: masterdir-${{ matrix.arch }}
+          key: masterdir-${{ matrix.arch }}-v1
           restore-keys: |
-            masterdir-${{ matrix.config.arch }}-
+            masterdir-${{ matrix.arch }}-
 
       - name: Checkout void-packages
         uses: actions/checkout@v6
@@ -126,7 +123,7 @@ jobs:
       - name: Restore masterdir from cache
         if: steps.cache-masterdir.outputs.cache-hit == 'true'
         run: |
-          mv masterdir-${{ matrix.config.arch }} void-packages/
+          mv masterdir-${{ matrix.arch }} void-packages/
 
       - name: Merge custom srcpkgs
         run: |
@@ -145,29 +142,20 @@ jobs:
           mkdir -p etc
           echo XBPS_BUILD_ENVIRONMENT=void-packages-ci >> etc/conf
           echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
-          echo XBPS_CHROOT_CMD=uchroot >> etc/conf
+          echo XBPS_CHROOT_CMD=proot >> etc/conf
           echo 'XBPS_REPOSITORY=$PWD/hostdir/binpkgs' >> etc/conf
           echo 'XBPS_DISTDIR=$PWD/hostdir/distfiles' >> etc/conf
 
       - name: Bootstrap masterdir
         run: |
           cd void-packages
-          [ -d masterdir-${{ matrix.config.arch }} ] || sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
-
-      - name: Install gawk in chroot
-        run: |
-          MASTERDIR="void-packages/masterdir-${{ matrix.config.arch }}"
-          sudo mount --bind /proc "$MASTERDIR/proc" || true
-          sudo mount --bind /dev "$MASTERDIR/dev" || true
-          sudo mount --bind /sys "$MASTERDIR/sys" || true
-          sudo chroot "$MASTERDIR" xbps-install -y gawk || { echo "❌ gawk install failed"; exit 1; }
-          sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" || true
+          [ -d masterdir-${{ matrix.arch }} ] || ./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} binary-bootstrap
 
       - name: Build package
         run: |
           cd void-packages
           echo "🏗️ Собираем $PKG для $ARCH..."
-          if ! sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} pkg "$PKG"; then
+          if ! ./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} pkg "$PKG"; then
             echo "❌ Ошибка сборки $PKG"
             exit 1
           fi
@@ -176,16 +164,16 @@ jobs:
         uses: actions/cache/save@v5
         if: steps.cache-masterdir.outputs.cache-hit != 'true'
         with:
-          path: void-packages/masterdir-${{ matrix.config.arch }}
+          path: void-packages/masterdir-${{ matrix.arch }}
           key: ${{ steps.cache-masterdir.outputs.cache-primary-key }}
 
       - name: Upload built packages
         uses: actions/upload-artifact@v7
         with:
-          name: binpkgs-${{ matrix.config.arch }}
+          name: binpkgs-${{ matrix.arch }}
           path: void-packages/hostdir/binpkgs
           if-no-files-found: ignore
-
+          
   # ─────────────────────────────────────────────────────────────
   # 3. SIGN: Подписываем репозиторий
   # ─────────────────────────────────────────────────────────────
