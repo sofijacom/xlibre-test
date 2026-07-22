@@ -94,13 +94,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Собираем в одном контейнере — но для разных архитектур
         arch:
           - x86_64
           - x86_64-musl
         package: ${{ fromJson(needs.detect.outputs.matrix) }}
     container:
-      # Используем ТОЛЬКО glibc-образ, чтобы GitHub Actions работал
       image: ghcr.io/void-linux/void-glibc-full:latest
       options: --privileged
     env:
@@ -112,7 +110,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: masterdir-${{ matrix.arch }}
-          key: masterdir-${{ matrix.arch }}-v3
+          key: masterdir-${{ matrix.arch }}-v4
           restore-keys: |
             masterdir-${{ matrix.arch }}-
 
@@ -127,6 +125,11 @@ jobs:
         if: steps.cache-masterdir.outputs.cache-hit == 'true'
         run: |
           mv masterdir-${{ matrix.arch }} void-packages/
+
+      - name: Install git and dependencies
+        run: |
+          # Устанавливаем git, gawk, wget — всё, что нужно для работы
+          sudo xbps-install -Sy git gawk wget xz
 
       - name: Merge custom srcpkgs
         run: |
@@ -152,7 +155,6 @@ jobs:
       - name: Bootstrap masterdir
         run: |
           cd void-packages
-          # Скачиваем базовую систему для нужной архитектуры
           [ -d masterdir-${{ matrix.arch }} ] || sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.arch }} -A ${{ matrix.arch }} binary-bootstrap
 
       - name: Build package
@@ -177,7 +179,6 @@ jobs:
           name: binpkgs-${{ matrix.arch }}
           path: void-packages/hostdir/binpkgs
           if-no-files-found: ignore
-
           
   # ─────────────────────────────────────────────────────────────
   # 3. SIGN: Подписываем репозиторий
