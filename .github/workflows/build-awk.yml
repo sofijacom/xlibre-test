@@ -61,7 +61,7 @@ jobs:
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
           env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq zip unzip git github-cli xtools coreutils
-          useradd -G xbuilder -M builder -s $(which bash)
+          useradd -G builder -M builder -s $(which bash)
           
       - name: 🔎 Checkout void-packages
         uses: actions/checkout@v6
@@ -107,14 +107,14 @@ jobs:
           echo "Latest Tag Name: ${latest_name}"
           echo "Latest Tag SHA: ${latest_sha}"
 
-          chown -R xbuilder:xbuilder .
+          chown -R builder:builder .
           git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
-          | cut -d/ -f 2 | uniq | xargs sudo -Eu xbuilder ./xbps-src sort-dependencies | tee /tmp/templates
+          | cut -d/ -f 2 | uniq | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
 
       - name: 📋 Setup void-packages
         working-directory: void-packages
         run: |
-          chown -R xbuilder:xbuilder .
+          chown -R builder:builder .
           mkdir -p etc
           echo XBPS_BUILD_ENVIRONMENT=void-packages-ci >> etc/conf
           echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
@@ -127,7 +127,7 @@ jobs:
         working-directory: void-packages
         run: |
           chown -R builder:builder .
-          yes | sudo -Eu xbuilder ./xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
+          yes | sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} binary-bootstrap
 
       - name: ✅ Install gawk in chroot
         working-directory: void-packages
@@ -187,11 +187,11 @@ jobs:
       - name: 📦 build pkgs
         working-directory: void-packages
         run: |
-          chown -R xbuilder:xbuilder .
+          chown -R builder:builder .
           pkgs=$(cat /tmp/templates)
           for pkg in ${pkgs}; do
             echo "🏗️ Building $pkg for $ARCH..."
-            sudo -Eu xbuilder ./xbps-src pkg -j$(nproc) -m masterdir-${{ matrix.config.arch }} -A ${{ matrix.config.arch }} "${pkg}" || printf "Failed building ${pkg}!\n"
+            sudo -Eu builder ./xbps-src pkg -j$(nproc) -m masterdir-${{ matrix.config.arch }} -a ${{ matrix.config.arch }} "${pkg}" || printf "Failed building ${pkg}!\n"
           done
 
       - name: 🧾 Clean & sign
@@ -200,12 +200,12 @@ jobs:
           PRIVKEY: ${{ secrets.PRIV_KEY }}
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
         run: |
-          sudo -Eu xbuilder xbps-rindex --remove-obsoletes ${PWD}
+          sudo -Eu builder xbps-rindex --remove-obsoletes ${PWD}
           printf "%s\n" "${PRIVKEY}" > key.pem
-          sudo -Eu xbuilder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose ${PWD}
-          sudo -Eu xbuilder xbps-rindex --privkey key.pem --sign-pkg --verbose ${PWD}/*.xbps
-          sudo -Eu xbuilder rm -f key.pem
-          sudo -Eu xbuilder xbps-rindex --clean ${PWD}
+          sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose ${PWD}
+          sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose ${PWD}/*.xbps
+          sudo -Eu builder rm -f key.pem
+          sudo -Eu builder xbps-rindex --clean ${PWD}
 
       - name: 🔢 checksum
         working-directory: void-packages/hostdir/binpkgs
