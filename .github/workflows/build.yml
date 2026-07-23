@@ -48,6 +48,14 @@ jobs:
       contents: write
 
     steps:
+      - name: ⏳ Cache hostdir
+        uses: actions/cache@v4
+        with:
+          path: ./hostdir
+          key: ${{ runner.os }}-hostdir-${{ matrix.config.arch }}-${{ hashFiles('srcpkgs/**') }}
+          restore-keys: |
+            ${{ runner.os }}-hostdir-${{ matrix.config.arch }}-
+            
       - name: Prepare container
         run: |
           # switch to repo-ci mirror
