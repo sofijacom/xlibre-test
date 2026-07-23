@@ -40,6 +40,7 @@ jobs:
       volumes:
         - /dev:/dev
       env:
+        SHELL: /bin/bash
         TAG: '${{ env.TAG }}'
         SHA: '${{ env.SHA }}'
         ARCH: '${{ matrix.config.arch }}'
@@ -64,7 +65,7 @@ jobs:
           # sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf          
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
-          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl jq git xz zip unzip github-cli xtools
+          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl jq git xz zip unzip github-cli
           useradd -G xbuilder -M builder -s $(which bash)
 
       - name: 🔧 Setup cross-build environment
@@ -72,26 +73,7 @@ jobs:
           ARCH="${{ matrix.config.arch }}"
           echo "==> Target architecture: $ARCH"
           echo "✅ Cross-compilation will be handled by xbps-src directly — no 'cross-*' packages needed."
-
-          case "$ARCH" in
-          aarch64|aarch64-musl)
-            TARGET="aarch64-linux-gnu"
-              ;;
-          armv7l)
-              TARGET="armv7l-linux-gnueabihf"
-              ;;
-          x86_64-musl)
-              TARGET="x86_64-linux-musl"
-              ;;
-          armv6l-musl)
-              TARGET="armv6l-linux-musleabihf"
-              ;;
-          *)
-          echo "Native build — no cross setup needed."
-          exit 0
-              ;;
-          esac
-
+          
       - name: 🔁 Checkout void-packages
         uses: actions/checkout@v6
         with:
@@ -141,16 +123,17 @@ jobs:
 
       - name: 🏗️ Build packages
         run: |
+          #!/bin/bash
           chown -R builder:builder .
           pkgs=$(cat /tmp/templates)
           for pkg in ${pkgs}; do
             echo "🏗️ Building $pkg for $ARCH..."
             if [[ "${{ matrix.config.host }}" == "${{ matrix.config.arch }}" ]]; then
               yes | sudo -Eu builder ./xbps-src -A ${{ matrix.config.host }} binary-bootstrap
-              sudo -Eu builder ./xbps-src -k -j$(nproc) pkg "${pkg}" || echo "❌ Failed: ${pkg}"
+              sudo -Eu builder ./xbps-src -j$(nproc) pkg "${pkg}" || echo "❌ Failed: ${pkg}"
             else
               yes | sudo -Eu builder ./xbps-src -a ${{ matrix.config.arch }} -A ${{ matrix.config.host }} binary-bootstrap
-              sudo -Eu builder ./xbps-src -k -j$(nproc) pkg -a ${{ matrix.config.arch }} -A ${{ matrix.config.host }} "${pkg}" || echo "❌ Failed: ${pkg}"
+              sudo -Eu builder ./xbps-src -j$(nproc) pkg -a ${{ matrix.config.arch }} -A ${{ matrix.config.host }} "${pkg}" || echo "❌ Failed: ${pkg}"
             fi
           done
 
