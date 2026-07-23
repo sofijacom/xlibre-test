@@ -47,15 +47,7 @@ jobs:
     permissions:
       contents: write
 
-    steps:
-      - name: ⏳ Cache hostdir
-        uses: actions/cache@v4
-        with:
-          path: ./hostdir
-          key: ${{ runner.os }}-hostdir-${{ matrix.config.arch }}-${{ hashFiles('srcpkgs/**') }}
-          restore-keys: |
-            ${{ runner.os }}-hostdir-${{ matrix.config.arch }}-
-            
+    steps:     
       - name: Prepare container
         run: |
           # switch to repo-ci mirror
@@ -66,7 +58,7 @@ jobs:
           xbps-install -Syu xbps && xbps-install -yu
 
           # base tools
-          xbps-install -y sudo bash curl git jq xz zip unzip github-cli xtools
+          xbps-install -y sudo bash curl git jq xz zip unzip github-cli xtools libstdc++
 
           # qemu-user-static — only on x86_64 host (not on i686)
           if [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "x86_64-musl" ]; then
@@ -78,13 +70,21 @@ jobs:
           else
             echo "⚠️ Not installing qemu-user-static on $ARCH — not needed or not available."
           fi
-
+ 
           # create non-root user
           useradd -G xbuilder -M builder -s /bin/bash
           # prepare home
           mkdir -p /home/builder
           chown builder:builder /home/builder
 
+      - name: ⏳ Cache hostdir
+        uses: actions/cache@v4
+        with:
+          path: ./hostdir
+          key: ${{ runner.os }}-hostdir-${{ matrix.config.arch }}-${{ hashFiles('srcpkgs/**') }}
+          restore-keys: |
+            ${{ runner.os }}-hostdir-${{ matrix.config.arch }}-
+            
       - name: 🔧 Install correct cross compilers (Void-native names)
         run: |
           ARCH="${{ matrix.config.arch }}"
