@@ -35,8 +35,8 @@ jobs:
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
 
     container:
-      image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:20250616R1
-      options: --platform ${{ matrix.config.platform }} --privileged
+      image: ghcr.io/void-linux/void-glibc-full:20250616R1
+      options: --platform linux/amd64 --privileged
       volumes:
         - /dev:/dev
       env:
@@ -61,14 +61,18 @@ jobs:
       - name: 🛠️ Prepare container
         run: |
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
-          sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf          
+          # sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf          
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
           env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl jq git xz zip unzip github-cli xtools
           useradd -G xbuilder -M builder -s $(which bash)
 
-      - name: 🔧 Install cross compilers
+      - name: 🔧 Setup cross-build environment
         run: |
+          ARCH="${{ matrix.config.arch }}"
+          echo "==> Target architecture: $ARCH"
+          echo "✅ Cross-compilation will be handled by xbps-src directly — no 'cross-*' packages needed."
+
           ARCH="${{ matrix.config.arch }}"
           case "$ARCH" in
             aarch64)
