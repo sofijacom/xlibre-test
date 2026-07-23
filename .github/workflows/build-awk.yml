@@ -61,7 +61,7 @@ jobs:
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
           env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq zip unzip git github-cli xtools coreutils
-          useradd -G builder -M builder -s $(which bash)
+          useradd -G xbuilder -M builder -s $(which bash)
           
       - name: 🔎 Checkout void-packages
         uses: actions/checkout@v6
