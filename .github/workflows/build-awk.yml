@@ -107,14 +107,14 @@ jobs:
           echo "Latest Tag Name: ${latest_name}"
           echo "Latest Tag SHA: ${latest_sha}"
 
-          chown -R builder:builder .
+          chown -R xbuilder:xbuilder .
           git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
-          | cut -d/ -f 2 | uniq | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
+          | cut -d/ -f 2 | uniq | xargs sudo -Eu xbuilder ./xbps-src sort-dependencies | tee /tmp/templates
 
       - name: 📋 Setup void-packages
         working-directory: void-packages
         run: |
-          chown -R builder:builder .
+          chown -R xbuilder:xbuilder .
           mkdir -p etc
           echo XBPS_BUILD_ENVIRONMENT=void-packages-ci >> etc/conf
           echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
@@ -187,7 +187,7 @@ jobs:
       - name: 📦 build pkgs
         working-directory: void-packages
         run: |
-          chown -R builder:builder .
+          chown -R xbuilder:xbuilder .
           pkgs=$(cat /tmp/templates)
           for pkg in ${pkgs}; do
             echo "🏗️ Building $pkg for $ARCH..."
@@ -200,12 +200,12 @@ jobs:
           PRIVKEY: ${{ secrets.PRIV_KEY }}
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
         run: |
-          sudo -Eu builder xbps-rindex --remove-obsoletes ${PWD}
+          sudo -Eu xbuilder xbps-rindex --remove-obsoletes ${PWD}
           printf "%s\n" "${PRIVKEY}" > key.pem
-          sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose ${PWD}
-          sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose ${PWD}/*.xbps
-          sudo -Eu builder rm -f key.pem
-          sudo -Eu builder xbps-rindex --clean ${PWD}
+          sudo -Eu xbuilder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose ${PWD}
+          sudo -Eu xbuilder xbps-rindex --privkey key.pem --sign-pkg --verbose ${PWD}/*.xbps
+          sudo -Eu xbuilder rm -f key.pem
+          sudo -Eu xbuilder xbps-rindex --clean ${PWD}
 
       - name: 🔢 checksum
         working-directory: void-packages/hostdir/binpkgs
