@@ -73,30 +73,24 @@ jobs:
           echo "==> Target architecture: $ARCH"
           echo "✅ Cross-compilation will be handled by xbps-src directly — no 'cross-*' packages needed."
 
-          ARCH="${{ matrix.config.arch }}"
           case "$ARCH" in
-            aarch64)
-              pkg="cross-aarch64-linux-gnu"
+          aarch64|aarch64-musl)
+            TARGET="aarch64-linux-gnu"
               ;;
-            aarch64-musl)
-              pkg="cross-aarch64-linux-musl"
+          armv7l)
+              TARGET="armv7l-linux-gnueabihf"
               ;;
-            armv7l)
-              pkg="cross-armv7l-linux-gnueabihf"
+          x86_64-musl)
+              TARGET="x86_64-linux-musl"
               ;;
-            i686|x86_64|x86_64-musl)
-              echo "Native arch — no cross compiler needed."
-              exit 0
+          armv6l-musl)
+              TARGET="armv6l-linux-musleabihf"
               ;;
-            *)
-              echo "Unknown arch: $ARCH"
-              exit 0
+          *)
+          echo "Native build — no cross setup needed."
+          exit 0
               ;;
           esac
-          xbps-install -y "$pkg" || {
-            echo "ERROR: Failed to install $pkg"
-            exit 1
-          }
 
       - name: 🔁 Checkout void-packages
         uses: actions/checkout@v6
