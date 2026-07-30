@@ -17,6 +17,12 @@ homepage="https://github.com/X11Libre/xf86-input-synaptics"
 distfiles="https://github.com/X11Libre/${_pkgname}/archive/refs/tags/${pkgname}-${version}.tar.gz"
 checksum=fca6a16ed199505a27dc167e88722b4d45aa5f46e86561d6c6eee3d7a750a107
 
+if [ "$XBPS_TARGET_LIBC" = "musl" ]; then
+    configure_args+=" -DCMAKE_CXX_FLAGS=\"-lexecinfo\""
+    makedepends+=" libexecinfo-devel"
+    depends+=" libexecinfo"
+fi
+
 pre_configure() {
   ./autogen.sh
 }
