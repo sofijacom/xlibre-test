@@ -1,7 +1,7 @@
 name: 🏗️ Build Void Linux Packages (Overwrite Release)
 
 env:
-  TAG: repository-${{ matrix.arch }}
+  TAG: repository-${ matrix.arch }
   SHA: ${{ github.sha }}
 
 #env:
@@ -37,7 +37,7 @@ jobs:
       volumes:
         - /dev:/dev
       env:
-        TAG: 'repository-${{ matrix.arch }}'
+        TAG: '${{ env.TAG }}'
         SHA: '${{ env.SHA }}'
         ARCH: '${{ matrix.arch }}'
         XBPS_TARGET_ARCH: '${{ matrix.arch }}'
