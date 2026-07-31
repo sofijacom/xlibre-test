@@ -1,4 +1,4 @@
-name: 🏗️ Build Void Linux Packages (Overwrite Release)
+name: 🏗️ Build Packages (Overwrite Release)
 
 on:
   workflow_dispatch:
