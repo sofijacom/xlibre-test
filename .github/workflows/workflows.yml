@@ -216,7 +216,7 @@ jobs:
           done
           echo "Fetched $(ls -A 2>/dev/null | wc -l) files from release ${TAG}"
 
-      - name: 📤 Upload to Release (overwrite only packages present in build)
+      - name: 📤 Upload to Release (clean & upload current packages only)
         working-directory: void-packages/hostdir/binpkgs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -245,27 +245,31 @@ jobs:
 
           echo "Using release ID: $release_id"
 
-          # Формируем список префиксов из файлов, которые сейчас в папке
-          # Например: hyprland-, zoneminder-, libeis-, perl-crypt-...
-          prefixes=""
+          # Автоматически собираем список префиксов из .xbps файлов
+          prefixes=()
           for file in *.xbps; do
             [ -f "$file" ] || continue
-            # Убираем версию и ревизию, оставляем только имя пакета
-            # hyprland-0.57.0_1.xbps -> hyprland-
             pkg_prefix=$(echo "$file" | sed -E 's/^([^-]+).*/\1-/')
             if [ -n "$pkg_prefix" ]; then
-              prefixes="$prefixes $pkg_prefix"
+              prefixes+=("$pkg_prefix")
             fi
           done
 
-          # Удаляем из релиза старые ассеты, которые начинаются на любой из префиксов
+          if [ ${#prefixes[@]} -gt 0 ]; then
+            echo "Will clean old versions for prefixes: ${prefixes[*]}"
+          else
+            echo "No .xbps files found in directory. Nothing to upload."
+            exit 0
+          fi
+
+          # Удаляем старые ассеты по префиксам
           assets=$(curl -s -H "$AUTH" -H "$ACCEPT" "${API}/releases/${release_id}" | jq -c '.assets[] | {id: .id, name: .name}')
           for asset in $assets; do
             asset_id=$(echo "$asset" | jq -r '.id')
             asset_name=$(echo "$asset" | jq -r '.name')
 
             matched=false
-            for prefix in $prefixes; do
+            for prefix in "${prefixes[@]}"; do
               if [[ "$asset_name" == "$prefix"* ]]; then
                 matched=true
                 break
@@ -278,8 +282,8 @@ jobs:
             fi
           done
 
-          # Загружаем новые файлы
-          for file in *; do
+          # ВАЖНО: загружаем ТОЛЬКО .xbps файлы (без .sha*.sum)
+          for file in *.xbps; do
             [ -f "$file" ] || continue
             filename="$file"
             upload_url="${UPLOADS}/releases/${release_id}/assets?name=${filename}"
