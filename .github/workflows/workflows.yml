@@ -1,12 +1,8 @@
 name: 🏗️ Build Void Linux Packages (Overwrite Release)
 
 env:
-  TAG: repository-{{ matrix.arch }}
+  TAG: workflow-${{ github.run_number }}
   SHA: ${{ github.sha }}
-
-#env:
-#  TAG: workflow-${{ github.run_number }}
-#  SHA: ${{ github.sha }}
 
 on:
   workflow_dispatch:
@@ -253,7 +249,7 @@ jobs:
 
           if [ -z "$release_id" ]; then
             body=$(curl -s -X POST -H "$AUTH" -H "$ACCEPT" -H "Content-Type: application/json" \
-              -d "{\"tag_name\":\"${TAG}\",\"target_commitish\":\"${SHA}\",\"name\":\"Binary repository for ${TAG}\"}" \
+              -d "{\"tag_name\":\"${TAG}\",\"target_commitish\":\"${SHA}\",\"name\":\"Repository ${TAG}\"}" \
               "${API}/releases")
             release_id=$(echo "$body" | jq -r '.id')
           fi
