@@ -216,7 +216,7 @@ jobs:
           done
           echo "Fetched $(ls -A 2>/dev/null | wc -l) files from release ${TAG}"
 
-      - name: 📤 Upload to Release (clean & upload current packages only)
+      - name: 📤 Upload to Release (.xbps + .sig2 + repodata)
         working-directory: void-packages/hostdir/binpkgs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -228,7 +228,7 @@ jobs:
           AUTH="Authorization: Bearer ${GH_TOKEN}"
           ACCEPT="Accept: application/vnd.github+json"
 
-          TAG="${ARCH}"
+          TAG="repository-${ARCH}"
           API="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}"
           UPLOADS="https://uploads.github.com/repos/${REPO_OWNER}/${REPO_NAME}"
 
@@ -245,7 +245,7 @@ jobs:
 
           echo "Using release ID: $release_id"
 
-          # Автоматически собираем список префиксов из .xbps файлов
+          # Собираем префиксы из .xbps файлов (только для удаления старых версий)
           prefixes=()
           for file in *.xbps; do
             [ -f "$file" ] || continue
@@ -258,11 +258,11 @@ jobs:
           if [ ${#prefixes[@]} -gt 0 ]; then
             echo "Will clean old versions for prefixes: ${prefixes[*]}"
           else
-            echo "No .xbps files found in directory. Nothing to upload."
+            echo "No .xbps files found. Nothing to upload."
             exit 0
           fi
 
-          # Удаляем старые ассеты по префиксам
+          # Удаляем старые ассеты, имена которых начинаются на любой из префиксов
           assets=$(curl -s -H "$AUTH" -H "$ACCEPT" "${API}/releases/${release_id}" | jq -c '.assets[] | {id: .id, name: .name}')
           for asset in $assets; do
             asset_id=$(echo "$asset" | jq -r '.id')
@@ -282,8 +282,26 @@ jobs:
             fi
           done
 
-          # ВАЖНО: загружаем ТОЛЬКО .xbps файлы (без .sha*.sum)
+          # ЗАГРУЖАЕМ .xbps
           for file in *.xbps; do
+            [ -f "$file" ] || continue
+            filename="$file"
+            upload_url="${UPLOADS}/releases/${release_id}/assets?name=${filename}"
+            echo "Uploading $filename"
+            curl -L -H "$AUTH" -H "Content-Type: application/octet-stream" --data-binary "@${filename}" "${upload_url}"
+          done
+
+          # ЗАГРУЖАЕМ .sig2
+          for file in *.sig2; do
+            [ -f "$file" ] || continue
+            filename="$file"
+            upload_url="${UPLOADS}/releases/${release_id}/assets?name=${filename}"
+            echo "Uploading $filename"
+            curl -L -H "$AUTH" -H "Content-Type: application/octet-stream" --data-binary "@${filename}" "${upload_url}"
+          done
+
+          # ЗАГРУЖАЕМ repodata-* (обязательно!)
+          for file in repodata-*; do
             [ -f "$file" ] || continue
             filename="$file"
             upload_url="${UPLOADS}/releases/${release_id}/assets?name=${filename}"
