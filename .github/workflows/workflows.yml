@@ -198,7 +198,7 @@ jobs:
           mkdir -p oldrepo
           cd oldrepo
 
-          TAG="repository-${ARCH}"
+          TAG="${ARCH}"
           url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${TAG}"
           resp=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$url") || true
           code=$(echo "$resp" | tail -n1)
