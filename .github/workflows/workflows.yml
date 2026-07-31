@@ -206,29 +206,6 @@ jobs:
           done
           echo "Fetched $(ls -A 2>/dev/null | wc -l) files from release ${ARCH}"
 
-      - name: 🔀 Merge old + new (keep unchanged, replace changed)
-        working-directory: void-packages/hostdir/binpkgs
-        env:
-          MY_PKGS: "hyprland zoneminder"
-        run: |
-          set -e
-          mkdir -p ../oldrepo
-          cp -v /tmp/oldrepo/* ../oldrepo/ 2>/dev/null || true
-
-          for pkg in $MY_PKGS; do
-            rm -f $(ls -1 2>/dev/null | grep "^${pkg}-") 2>/dev/null || true
-          done
-
-          for f in ../oldrepo/*; do
-            name=$(basename "$f")
-            pkgname=$(echo "$name" | sed -E 's/-[0-9].*$//')
-            if ! echo "$MY_PKGS" | grep -qw "$pkgname"; then
-              cp -nv "$f" . 2>/dev/null || true
-            fi
-          done
-
-          [ -f ../oldrepo/repodata ] && cp -nv ../oldrepo/repodata . 2>/dev/null || true
-
       - name: 📤 Upload to Release (overwrite)
         working-directory: void-packages/hostdir/binpkgs
         env:
