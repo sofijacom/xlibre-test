@@ -1,4 +1,5 @@
 # Template file for 'mirror.fdo.xorg-macros'
+
 pkgname=xlibre-util-macros
 _pkgname=util-macros
 version=1.20.2
@@ -23,4 +24,3 @@ pre_configure() {
 post_install() {
 	vlicense COPYING
 }
-

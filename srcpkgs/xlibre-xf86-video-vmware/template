@@ -1,4 +1,5 @@
 # Template file for 'xf86-video-vmware'
+
 pkgname=xlibre-xf86-video-vmware
 _pkgname=xf86-video-vmware
 version=25.0.0

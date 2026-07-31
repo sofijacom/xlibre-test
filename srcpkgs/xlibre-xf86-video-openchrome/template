@@ -1,4 +1,5 @@
 # Template file for 'xf86-video-openchrome'
+
 pkgname=xlibre-xf86-video-openchrome
 _pkgname=xf86-video-openchrome
 version=25.0.0

@@ -1,4 +1,5 @@
 # Template file for 'xf86-video-sisusb'
+
 pkgname=xlibre-xf86-video-sisusb
 _pkgname=xf86-video-sisusb
 version=25.0.0

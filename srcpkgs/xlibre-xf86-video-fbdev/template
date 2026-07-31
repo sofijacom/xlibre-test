@@ -1,4 +1,5 @@
 # Template file for 'xf86-video-fbdev'
+
 pkgname=xlibre-xf86-video-fbdev
 _pkgname=xf86-video-fbdev
 version=25.0.0
