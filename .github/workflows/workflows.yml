@@ -301,8 +301,8 @@ jobs:
             curl -L -H "$AUTH" -H "Content-Type: application/octet-stream" --data-binary "@${filename}" "${upload_url}"
           done
 
-          # Upload repodata-*
-          for file in repodata-*; do
+          # Upload *-repodata
+          for file in "${ARCH}-repodata"; do
             [ -f "$file" ] || continue
             filename="$file"
             upload_url="${UPLOADS}/releases/${release_id}/assets?name=${filename}"
