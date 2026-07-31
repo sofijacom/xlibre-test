@@ -1,7 +1,7 @@
 name: 🏗️ Build Void Linux Packages (Overwrite Release)
 
 env:
-  TAG: repository-$matrix.arch
+  TAG: repository-{{ matrix.arch }}
   SHA: ${{ github.sha }}
 
 #env:
