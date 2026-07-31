@@ -27,8 +27,6 @@ jobs:
       matrix:
         config:
           - { arch: x86_64, host: x86_64, libc: glibc, platform: linux/amd64, test: 1 }
-          # - { arch: i686, host: i686, libc: glibc, platform: linux/386, test: 1 }
-          # - { arch: x86_64-musl, host: x86_64-musl, libc: musl, platform: linux/amd64, test: 1 }
     
     container:
       image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:20250616R1
@@ -208,10 +206,6 @@ jobs:
             echo "❌ No packages found to checksum."
           fi
 
-      # ===========================================================
-      # 🔥 ЛОГИКА ПЕРЕЗАПИСИ РЕЛИЗА (без новых тегов)
-      # ===========================================================
-
       - name: 💾 Fetch existing repo from Release
         working-directory: /tmp
         env:
@@ -244,7 +238,6 @@ jobs:
       - name: 🔀 Merge old + new (keep unchanged, replace changed)
         working-directory: void-packages/hostdir/binpkgs
         env:
-          # ⚠️ ВПИШИ СЮДА ТОЛЬКО СВОИ ПАКЕТЫ (шаблоны, которые ты меняешь)
           MY_PKGS: "hyprland zoneminder"
         run: |
           set -e
