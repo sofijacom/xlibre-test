@@ -1,8 +1,8 @@
 name: 🏗️ Build Void Linux Packages (Overwrite Release)
 
-#env:
-#  TAG: repository-${{ matrix.config.arch }}
-#  SHA: ${{ github.sha }}
+env:
+  TAG: repository-${{ matrix.config.arch }}
+  SHA: ${{ github.sha }}
 
 on:
   workflow_dispatch:
