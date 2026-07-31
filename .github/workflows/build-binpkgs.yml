@@ -1,8 +1,8 @@
 name: 🏗️ Build Void Linux Packages (Overwrite Release)
 
-#env:
-#  TAG: repository-${{ matrix.config.arch }}
-#  SHA: ${{ github.sha }}
+env:
+  TAG: repository-${{ matrix.config.arch }}
+  SHA: ${{ github.sha }}
 
 on:
   workflow_dispatch:
@@ -34,10 +34,8 @@ jobs:
       volumes:
         - /dev:/dev
       env:
-        TAG: repository-${{ matrix.config.arch }}
-        SHA: ${{ github.sha }}      
-        #TAG: '${{ env.TAG }}'
-        #SHA: '${{ env.SHA }}'
+        TAG: '${{ env.TAG }}'
+        SHA: '${{ env.SHA }}'
         ARCH: '${{ matrix.config.arch }}'
         XBPS_TARGET_ARCH: '${{ matrix.config.arch }}'
         REPO_OWNER: "${{ github.repository_owner }}"
@@ -261,19 +259,16 @@ jobs:
 
           ls -1 > /tmp/current_files.txt
 
-          # Удаляем старые ассеты для тех же файлов, чтобы перезаписать
           assets=$(curl -s -H "$AUTH" -H "$ACCEPT" "${API}/releases/${release_id}" | jq -c '.assets[] | {id: .id, name: .name}')
           for asset in $assets; do
             asset_id=$(echo "$asset" | jq -r '.id')
             asset_name=$(echo "$asset" | jq -r '.name')
-            # Если имя файла есть в текущем списке — удаляем старый ассет
             if grep -q "^${asset_name}$" /tmp/current_files.txt; then
               echo "Deleting old asset: $asset_name (id=$asset_id)"
               curl -s -X DELETE -H "$AUTH" -H "$ACCEPT" "${API}/releases/assets/${asset_id}"
             fi
           done
 
-          # Загружаем новые файлы
           for file in *; do
             [ -f "$file" ] || continue
             filename="$file"
