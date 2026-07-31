@@ -2,7 +2,7 @@
 
 pkgname=xlibre-repo
 version=25.1.0
-revision=2
+revision=1
 short_desc="XLibre for VOID linux"
 maintainer="Sofiya <sofiya@v.com>"
 license="MIT"
