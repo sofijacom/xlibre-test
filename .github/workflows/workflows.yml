@@ -216,7 +216,7 @@ jobs:
           done
           echo "Fetched $(ls -A 2>/dev/null | wc -l) files from release ${TAG}"
 
-      - name: 📤 Upload to Release (overwrite old versions)
+      - name: 📤 Upload to Release (overwrite only packages present in build)
         working-directory: void-packages/hostdir/binpkgs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -245,13 +245,34 @@ jobs:
 
           echo "Using release ID: $release_id"
 
-          # ВАЖНО: удаляем ВСЕ старые ассеты для hyprland и zoneminder (любые версии)
+          # Формируем список префиксов из файлов, которые сейчас в папке
+          # Например: hyprland-, zoneminder-, libeis-, perl-crypt-...
+          prefixes=""
+          for file in *.xbps; do
+            [ -f "$file" ] || continue
+            # Убираем версию и ревизию, оставляем только имя пакета
+            # hyprland-0.57.0_1.xbps -> hyprland-
+            pkg_prefix=$(echo "$file" | sed -E 's/^([^-]+).*/\1-/')
+            if [ -n "$pkg_prefix" ]; then
+              prefixes="$prefixes $pkg_prefix"
+            fi
+          done
+
+          # Удаляем из релиза старые ассеты, которые начинаются на любой из префиксов
           assets=$(curl -s -H "$AUTH" -H "$ACCEPT" "${API}/releases/${release_id}" | jq -c '.assets[] | {id: .id, name: .name}')
           for asset in $assets; do
             asset_id=$(echo "$asset" | jq -r '.id')
             asset_name=$(echo "$asset" | jq -r '.name')
-            # Удаляем, если имя начинается на hyprland- или zoneminder-
-            if [[ "$asset_name" == hyprland-* ]] || [[ "$asset_name" == zoneminder-* ]]; then
+
+            matched=false
+            for prefix in $prefixes; do
+              if [[ "$asset_name" == "$prefix"* ]]; then
+                matched=true
+                break
+              fi
+            done
+
+            if [ "$matched" = true ]; then
               echo "Deleting old asset: $asset_name (id=$asset_id)"
               curl -s -X DELETE -H "$AUTH" -H "$ACCEPT" "${API}/releases/assets/${asset_id}"
             fi
