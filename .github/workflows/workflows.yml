@@ -218,6 +218,7 @@ jobs:
 
       - name: 📤 Upload to Release (.xbps + .sig2 + repodata)
         working-directory: void-packages/hostdir/binpkgs
+        shell: bash  # <--- ЭТО САМОЕ ВАЖНОЕ: запускаем в bash, а не в sh
         env:
           GH_TOKEN: ${{ github.token }}
           REPO_OWNER: ${{ github.repository_owner }}
@@ -228,7 +229,7 @@ jobs:
           AUTH="Authorization: Bearer ${GH_TOKEN}"
           ACCEPT="Accept: application/vnd.github+json"
 
-          TAG="${ARCH}"
+          TAG="repository-${ARCH}"
           API="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}"
           UPLOADS="https://uploads.github.com/repos/${REPO_OWNER}/${REPO_NAME}"
 
@@ -245,31 +246,31 @@ jobs:
 
           echo "Using release ID: $release_id"
 
-          # Собираем префиксы из .xbps файлов (только для удаления старых версий)
-          prefixes=()
+          # Собираем префиксы в строку (без массивов, чтобы работало в любом shell)
+          prefixes=""
           for file in *.xbps; do
             [ -f "$file" ] || continue
             pkg_prefix=$(echo "$file" | sed -E 's/^([^-]+).*/\1-/')
             if [ -n "$pkg_prefix" ]; then
-              prefixes+=("$pkg_prefix")
+              prefixes="$prefixes $pkg_prefix"
             fi
           done
 
-          if [ ${#prefixes[@]} -gt 0 ]; then
-            echo "Will clean old versions for prefixes: ${prefixes[*]}"
+          if [ -n "$prefixes" ]; then
+            echo "Will clean old versions for prefixes:$prefixes"
           else
             echo "No .xbps files found. Nothing to upload."
             exit 0
           fi
 
-          # Удаляем старые ассеты, имена которых начинаются на любой из префиксов
+          # Удаляем старые ассеты по префиксам
           assets=$(curl -s -H "$AUTH" -H "$ACCEPT" "${API}/releases/${release_id}" | jq -c '.assets[] | {id: .id, name: .name}')
           for asset in $assets; do
             asset_id=$(echo "$asset" | jq -r '.id')
             asset_name=$(echo "$asset" | jq -r '.name')
 
             matched=false
-            for prefix in "${prefixes[@]}"; do
+            for prefix in $prefixes; do
               if [[ "$asset_name" == "$prefix"* ]]; then
                 matched=true
                 break
@@ -282,7 +283,7 @@ jobs:
             fi
           done
 
-          # ЗАГРУЖАЕМ .xbps
+          # Upload .xbps
           for file in *.xbps; do
             [ -f "$file" ] || continue
             filename="$file"
@@ -291,7 +292,7 @@ jobs:
             curl -L -H "$AUTH" -H "Content-Type: application/octet-stream" --data-binary "@${filename}" "${upload_url}"
           done
 
-          # ЗАГРУЖАЕМ .sig2
+          # Upload .sig2
           for file in *.sig2; do
             [ -f "$file" ] || continue
             filename="$file"
@@ -300,7 +301,7 @@ jobs:
             curl -L -H "$AUTH" -H "Content-Type: application/octet-stream" --data-binary "@${filename}" "${upload_url}"
           done
 
-          # ЗАГРУЖАЕМ repodata-* (обязательно!)
+          # Upload repodata-*
           for file in repodata-*; do
             [ -f "$file" ] || continue
             filename="$file"
