@@ -229,7 +229,7 @@ jobs:
           AUTH="Authorization: Bearer ${GH_TOKEN}"
           ACCEPT="Accept: application/vnd.github+json"
 
-          TAG="repository-${ARCH}"
+          TAG="${ARCH}"
           API="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}"
           UPLOADS="https://uploads.github.com/repos/${REPO_OWNER}/${REPO_NAME}"
 
