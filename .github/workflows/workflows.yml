@@ -1,7 +1,6 @@
 name: 🏗️ Build Void Linux Packages (Overwrite Release)
 
 env:
-  TAG: workflow-${{ github.run_number }}
   SHA: ${{ github.sha }}
 
 on:
@@ -33,7 +32,7 @@ jobs:
       volumes:
         - /dev:/dev
       env:
-        TAG: '${{ env.TAG }}'
+        #TAG: '${{ env.TAG }}'
         SHA: '${{ env.SHA }}'
         ARCH: '${{ matrix.arch }}'
         XBPS_TARGET_ARCH: '${{ matrix.arch }}'
@@ -186,19 +185,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
-          TAG: ${{ env.TAG }}
+          ARCH: ${{ matrix.arch }}
         run: |
           set -e
           mkdir -p oldrepo
           cd oldrepo
 
-          url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${TAG}"
+          url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${ARCH}"
           resp=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$url") || true
           code=$(echo "$resp" | tail -n1)
           body=$(echo "$resp" | sed '$d')
 
           if [ "$code" != "200" ]; then
-            echo "No existing release ${TAG} (HTTP ${code}), starting fresh."
+            echo "No existing release ${ARCH} (HTTP ${code}), starting fresh."
             exit 0
           fi
 
@@ -207,7 +206,7 @@ jobs:
             echo "Downloading $name"
             curl -sSL -o "$name" -H "Accept: application/octet-stream" -H "Authorization: Bearer ${GH_TOKEN}" "$url" || true
           done
-          echo "Fetched $(ls -A 2>/dev/null | wc -l) files from release ${TAG}"
+          echo "Fetched $(ls -A 2>/dev/null | wc -l) files from release ${ARCH}"
 
       - name: 🔀 Merge old + new (keep unchanged, replace changed)
         working-directory: void-packages/hostdir/binpkgs
@@ -238,18 +237,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           API: https://api.github.com/repos/${{ github.repository_owner }}/${{ github.event.repository.name }}
           UPLOADS: https://uploads.github.com/repos/${{ github.repository_owner }}/${{ github.event.repository.name }}
-          TAG: ${{ env.TAG }}
+          ARCH: ${{ matrix.arch }}
         run: |
           set -e
           AUTH="Authorization: Bearer ${GH_TOKEN}"
           ACCEPT="Accept: application/vnd.github+json"
 
-          resp=$(curl -s -H "$AUTH" -H "$ACCEPT" "${API}/releases/tags/${TAG}")
+          resp=$(curl -s -H "$AUTH" -H "$ACCEPT" "${API}/releases/tags/${ARCH}")
           release_id=$(echo "$resp" | jq -r '.id // empty')
 
           if [ -z "$release_id" ]; then
             body=$(curl -s -X POST -H "$AUTH" -H "$ACCEPT" -H "Content-Type: application/json" \
-              -d "{\"tag_name\":\"${TAG}\",\"target_commitish\":\"${SHA}\",\"name\":\"Repository ${TAG}\"}" \
+              -d "{\"tag_name\":\"${ARCH}\",\"target_commitish\":\"${SHA}\",\"name\":\"Repository ${ARCH}\"}" \
               "${API}/releases")
             release_id=$(echo "$body" | jq -r '.id')
           fi
