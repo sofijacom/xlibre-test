@@ -1,8 +1,8 @@
 name: 🏗️ Build Void Linux Packages (Overwrite Release)
 
-env:
-  TAG: repository-${{ matrix.config.arch }}
-  SHA: ${{ github.sha }}
+#env:
+#  TAG: repository-${{ matrix.config.arch }}
+#  SHA: ${{ github.sha }}
 
 on:
   workflow_dispatch:
@@ -34,8 +34,10 @@ jobs:
       volumes:
         - /dev:/dev
       env:
-        TAG: '${{ env.TAG }}'
-        SHA: '${{ env.SHA }}'
+        TAG: repository-${{ matrix.config.arch }}
+        SHA: ${{ github.sha }}      
+        #TAG: '${{ env.TAG }}'
+        #SHA: '${{ env.SHA }}'
         ARCH: '${{ matrix.config.arch }}'
         XBPS_TARGET_ARCH: '${{ matrix.config.arch }}'
         REPO_OWNER: "${{ github.repository_owner }}"
