@@ -1,9 +1,5 @@
 name: 🏗️ Build Void Linux Packages (binpkgs branch overwrite)
 
-env:
-  TAG: workflow-${{ github.run_number }}
-  SHA: ${{ github.sha }}
-
 on:
   workflow_dispatch:
   push:
@@ -26,22 +22,24 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64 }
-          # - { arch: i686,         host: i686,        libc: glibc, platform: linux/386 }
-          # - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64 }
+          - { arch: x86_64, libc: glibc, platform: linux/amd64 }
+          # - { arch: i686, libc: glibc, platform: linux/386 }
+          # - { arch: x86_64-musl, libc: musl, platform: linux/amd64 }
 
     container:
       image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:20250616R1
       options: --platform ${{ matrix.config.platform }} --privileged
       volumes:
         - /dev:/dev
-      env:
-        TAG: '${{ env.TAG }}'
-        SHA: '${{ env.SHA }}'
-        ARCH: '${{ matrix.config.arch }}'
-        XBPS_TARGET_ARCH: '${{ matrix.config.arch }}'
-        REPO_OWNER: "${{ github.repository_owner }}"
-        REPO_NAME: "${{ github.event.repository.name }}"
+
+    env:
+      TAG: workflow-${{ github.run_number }}
+      SHA: ${{ github.sha }}
+      ARCH: ${{ matrix.config.arch }}
+      XBPS_TARGET_ARCH: ${{ matrix.config.arch }}
+      REPO_OWNER: ${{ github.repository_owner }}
+      REPO_NAME: ${{ github.event.repository.name }}
+
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:
@@ -98,7 +96,6 @@ jobs:
           fi
 
           if [ -z "$latest_sha" ]; then
-            # Fallback: first commit on main
             latest_sha=$(git rev-list --max-parents=0 $REPO_OWNER/main 2>/dev/null)
           fi
 
@@ -110,7 +107,6 @@ jobs:
             git diff-tree -r --no-renames --name-only --diff-filter=AM "$latest_sha" "${SHA}" -- 'srcpkgs/**' \
               | cut -d/ -f 2 | uniq | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
           else
-            # Если нет предыдущего тега — собираем всё (или можно пропустить)
             find srcpkgs -maxdepth 1 -type d | cut -d/ -f 2 | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
           fi
 
@@ -220,7 +216,7 @@ jobs:
       - name: 📦 Sync binpkgs to branch (overwrite contents, keep history)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ARCH="${{ matrix.config.arch }}"
+          ARCH: ${{ matrix.config.arch }}
         run: |
           set -euo pipefail
           branch="binpkgs-${ARCH}"
@@ -229,33 +225,28 @@ jobs:
 
           cd "$tmpdir"
 
-          # Настраиваем credential helper, чтобы не передавать токен в URL
+          # Настраиваем credential helper
           git config credential.helper '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Пытаемся клонировать ветку; если её нет — создадим новую
+          # Клонируем ветку или инициализируем новую
           if git clone --depth 1 --branch "$branch" "https://github.com/${{ github.repository }}.git" . 2>/dev/null; then
-            # Ветка существует: удаляем всё, кроме .git
             find . -maxdepth 1 ! -name .git -exec rm -rf {} +
           else
-            # Ветки нет: инициализируем пустой репозиторий
             git init
           fi
 
-          # Копируем новые пакеты и repodata
           cp -r "$src/"* .
 
           git add .
           git commit -m "Update packages for ${ARCH} (run ${{ github.run_number }}, SHA ${SHA})" || true
-          git push -f "https://github.com/${{ github.repository }}" HEAD:"refs/heads/${branch}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" HEAD:"refs/heads/${branch}"
 
       - name: 🏷️ Short SHA
         run: |
           printf "SHORT_SHA=$(git rev-parse --short ${SHA})" >> $GITHUB_ENV
 
-      # Опционально: можно оставить и артефакт для отладки
       - name: 📤 Upload Artifact (debug)
         uses: actions/upload-artifact@v7
         with:
@@ -263,3 +254,4 @@ jobs:
           path: void-packages/hostdir/binpkgs
           retention-days: 7
           if-no-files-found: ignore
+
