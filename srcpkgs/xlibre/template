@@ -12,3 +12,9 @@ license="MIT"
 homepage="https://github.com/X11Libre/xserver/wiki"
 _provides="xorg-${version}_${revision}"
 replaces="xorg>=0"
+
+if [ "$XBPS_TARGET_LIBC" = "musl" ]; then
+	configure_args+=" -DCMAKE_CXX_FLAGS=\"-lexecinfo\""
+	makedepends+=" libexecinfo-devel"
+	depends+=" libexecinfo"
+fi
