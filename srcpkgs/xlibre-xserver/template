@@ -54,7 +54,6 @@ makedepends="
 	libXt-devel
 	libXtst-devel
 	libXv-devel
-	libXvfb-devel
 	libXxf86dga-devel
 	libbsd-devel
 	libdmx-devel
