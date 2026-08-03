@@ -136,14 +136,14 @@ xlibre-xserver-common_package() {
 }
 
 xlibre-xserver-devel_package() {
-     short_desc+=" - development files"
-     depends="${makedepends}"
-     provides="xorg-server-devel-${version}_${revision}"
-     replaces="xorg-server-devel>=0"
-     pkg_install() {
-         vlicense COPYING
-         vmove usr/include
-         vmove usr/lib/pkgconfig
-         vmove usr/share/aclocal
-     }
- }
+	short_desc+=" - development files"
+	depends="${makedepends}"
+	provides="xorg-server-devel-${version}_${revision}"
+	replaces="xorg-server-devel>=0"
+	pkg_install() {
+		vlicense COPYING
+		vmove usr/include
+		vmove usr/lib/pkgconfig
+		vmove usr/share/aclocal
+	}
+}
