@@ -18,12 +18,6 @@ homepage="https://github.com/X11Libre/xf86-input-evdev"
 distfiles="https://github.com/X11Libre/${_pkgname}/archive/refs/tags/${pkgname}-${version}.tar.gz"
 checksum=c810cc2d4ba63ee917f40b12e8e09c3e046653badcaace6897561dd3087944e8
 
-if [ "$XBPS_TARGET_LIBC" = "musl" ]; then
-    configure_args+=" -DCMAKE_CXX_FLAGS=\"-lexecinfo\""
-    makedepends+=" libexecinfo-devel"
-    depends+=" libexecinfo"
-fi
-
 pre_configure() {
   ./autogen.sh
 }
