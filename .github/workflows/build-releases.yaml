@@ -26,9 +26,9 @@ jobs:
       matrix:
         config: &build_matrix
           - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
-          - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
-          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
-          - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
+          #- { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
+          #- { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
+          #- { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
 
     permissions:
       contents: write
@@ -306,7 +306,7 @@ jobs:
           if [ "$code" = "404" ]; then
             echo "Creating release ${TAG}..."
             body=$(curl -s -X POST -H "$AUTH" -H "$ACCEPT" -H "Content-Type: application/json" \
-              -d "{\"tag_name\":\"${TAG}\",\"target_commitish\":\"${SHA}\",\"name\":\"Binary repository for ${ARCH}\",\"body\":\"Add with: repository=https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${TAG}\"}" \
+              -d "{\"tag_name\":\"${TAG}\",\"target_commitish\":\"${SHA}\",\"name\":\"Binary repo for ${ARCH}\",\"body\":\"Add with: repository=https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${TAG}\"}" \
               "${API}/releases")
           else
             # Point release at latest commit
