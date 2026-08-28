@@ -51,16 +51,23 @@ jobs:
     steps:
       - name: Prepare container and switch to master branch
         run: |
-          # Переключаем систему хоста на ветку master, где есть repodata для ARM/aarch64
-          xbps-pkgdb -m master
-          
+          # Переключаем систему хоста на ветку master через основной конфиг xbps
+          if [ -f /etc/xbps.d/00-repository-main.conf ]; then
+            echo "Switching host repository to master branch..."
+            xbps-pkgdb --repository-mode master void
+          else
+            echo "Warning: Main repo config not found at 00-repository-main.conf"
+          fi
+
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
+          
+          # Обновляем индексы уже после переключения ветки
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
-          # Устанавливаем только необходимые утилиты без sudo
+          
           env -u XBPS_TARGET_ARCH xbps-install -y bash curl grep jq git xz zip unzip github-cli xtools
           useradd -G xbuilder -M builder -s /bin/sh
-            
+          
       - name: Checkout xlibre
         uses: actions/checkout@v6
         with:
