@@ -19,7 +19,7 @@ concurrency:
 jobs:
   build:
     name: Build 📦 ${{ matrix.config.arch }}
-    runs-on: ubuntu-latest # Работаем нативно без docker container/run
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     strategy:
@@ -31,30 +31,16 @@ jobs:
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
 
     steps:
-      # --- ШАГ 1: Подготовка системы хоста ---
+      # --- ШАГ 1: Установка XBPS через APT (без ручных загрузок) ---
       - name: Install dependencies on runner
         run: |
           sudo apt-get update
-          sudo apt-get install -y xz-utils wget gnupg git curl jq build-essential autoconf automake libtool pkg-config python3
           
-          if [ ! -f /usr/local/bin/xbps-static ]; then
-            echo "📥 Downloading static xbps from official repo..."
-            mkdir -p /tmp/xbps-download
-            cd /tmp/xbps-download
-            
-            # Используем официальный домен с валидным сертификатом
-            wget https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64.tar.xz
-            
-            tar -xJf xbps-static-latest.x86_64.tar.xz --strip-components=1 ./usr/bin/xbps-uhelper ./usr/bin/xbps-static
-            
-            sudo mv xbps-* /usr/local/bin/
-            sudo chmod +x /usr/local/bin/xbps-static /usr/local/bin/xbps-uhelper
-            
-            cd /
-            rm -rf /tmp/xbps-download
-          fi
+          # Удаляем старые попытки ручной установки, если они были
+          if [ -f /usr/local/bin/xbps-static ]; then sudo rm -f /usr/local/bin/xbps-*; fi
           
-          id builder >/dev/null 2>&1 || sudo useradd -G xbuilder -M builder -s /bin/bash
+          # Устанавливаем официальную версию из репозитория Ubuntu
+          sudo apt-get install -y xbps-bin libarchive-tools wget gnupg git curl jq build-essential autoconf automake libtool pkg-config python3 qemu-user-static binfmt-support
             
       - name: Checkout and setup repository
         uses: actions/checkout@v6
@@ -118,13 +104,25 @@ jobs:
           
           cp etc/defaults/master.conf etc/defaults.conf
           
+          # Принудительно задаем режим uchroot (он есть внутри пакета xbps-bin)
           export XBPS_CHROOT_CMD=uchroot
           export XBPS_USE_MOUNTFS=no
           export XBPS_REPOSITORY="https://repo-default.voidlinux.org/current"
           
+          # ЭТО КРИТИЧНО ДЛЯ КРОСС-КОМПИЛЯЦИИ:
+          # Мы говорим системе сборки, какой процессор целевого устройства нам нужен
+          export XBPS_TARGET_ARCH=${{ matrix.config.arch }}
+          
           echo "XBPS_CHROOT_CMD=$XBPS_CHROOT_CMD" >> $GITHUB_ENV
           echo "XBPS_USE_MOUNTFS=$XBPS_USE_MOUNTFS" >> $GITHUB_ENV
           echo "XBPS_REPOSITORY=$XBPS_REPOSITORY" >> $GITHUB_ENV
+          echo "XBPS_TARGET_ARCH=$XBPS_TARGET_ARCH" >> $GITHUB_ENV
+          
+          # Создаем пользователя один раз
+          id builder >/dev/null 2>&1 || sudo useradd -G xbuilder -M builder -s /bin/bash
+          
+          # Инициализация базы данных пакетов от имени builder
+          su -s /bin/sh builder -c "xbps-install -Syu"
           
           if [ "${{ matrix.config.host }}" != "${{ matrix.config.arch }}" ]; then
             echo "🚜 Bootstrapping CROSS toolchain for ${{ matrix.config.arch }}..."
@@ -138,6 +136,7 @@ jobs:
         id: build
         run: |
           export PATH="/usr/local/bin:$PATH"
+          export XBPS_TARGET_ARCH=${{ matrix.config.arch }}
           
           if [ ! -s /tmp/templates ]; then
             echo "❌ FATAL ERROR: Template list is empty after all checks."
