@@ -66,6 +66,7 @@ jobs:
       - name: Merge this repository into void-linux/void-packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash          
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
