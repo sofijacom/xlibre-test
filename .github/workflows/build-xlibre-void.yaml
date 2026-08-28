@@ -2,7 +2,7 @@ name: Test XLibre VOID linux
 
 env:
   TAG: workflow-${{ github.run_number }}
-  SHA: ${{ github.sha }}
+  SHA: ${{ github.sha }} # Сохраняем оригинальный SHA для тегов релиза
 
 on:
   workflow_dispatch:
@@ -27,11 +27,11 @@ jobs:
       matrix:
         config:
           - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
-          #- { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
+          - { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
           - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
-          #- { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
+          - { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
           - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
-          #- { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
+          - { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
   
     container:
@@ -49,6 +49,14 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:
+      # --- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ---
+      # Увеличиваем глубину клона до полной истории, чтобы git мог найти base_sha
+      - uses: actions/checkout@v6
+        with:
+          repository: void-linux/void-packages
+          ref: master
+          fetch-depth: 0 
+      
       - name: Prepare container and switch to master branch
         run: |
           xbps-pkgdb --repository-mode master void || true
@@ -59,12 +67,6 @@ jobs:
           env -u XBPS_TARGET_ARCH xbps-install -y bash curl grep jq git xz zip unzip github-cli xtools
           useradd -G xbuilder -M builder -s /bin/sh
             
-      - name: Checkout xlibre
-        uses: actions/checkout@v6
-        with:
-          repository: void-linux/void-packages
-          ref: master
-
       - name: Merge this repository into void-linux/void-packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -72,8 +74,12 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "*"
-          git remote add -f "$REPO_OWNER" https://github.com/"$REPO_OWNER"/"$REPO_NAME".git
-          git merge --no-commit --strategy-option=theirs --allow-unrelated-histories -Xignore-space-change "$REPO_OWNER"/main
+          
+          # Добавляем свой репозиторий именно под именем origin, чтобы HEAD указывал на него
+          git remote add myfork https://github.com/"$REPO_OWNER"/"$REPO_NAME".git
+          git fetch myfork main --depth=100
+          git merge --no-commit --strategy-option=theirs --allow-unrelated-histories -Xignore-space-change myfork/main
+          
           mkdir -p hostdir/binpkgs
           
           if gh release view "$TAG" --repo "$REPO_OWNER/$REPO_NAME" &>/dev/null; then
@@ -86,14 +92,10 @@ jobs:
           for f in *-"$ARCH"*; do
             [ -e "$f" ] || continue
             case "$ARCH" in
-              x86_64) 
-                echo "$f" | grep -q -- '-musl\.' && rm -f -- "$f" ;;
-              x86_64-musl) 
-                echo "$f" | grep -q -- '^x86_64[^m]' && rm -f -- "$f" ;;
-              aarch64) 
-                echo "$f" | grep -q -- '-musl\.' && rm -f -- "$f" ;;
-              aarch64-musl) 
-                echo "$f" | grep -q -- '^aarch64[^m]' && rm -f -- "$f" ;;
+              x86_64) echo "$f" | grep -q -- '-musl\.' && rm -f -- "$f" ;;
+              x86_64-musl) echo "$f" | grep -q -- '^x86_64[^m]' && rm -f -- "$f" ;;
+              aarch64) echo "$f" | grep -q -- '-musl\.' && rm -f -- "$f" ;;
+              aarch64-musl) echo "$f" | grep -q -- '^aarch64[^m]' && rm -f -- "$f" ;;
             esac
           done
           cd - > /dev/null || exit 1
@@ -102,20 +104,41 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          latest_name=$(gh release view --json tagName --jq '.tagName' --repo "$REPO_OWNER/$REPO_NAME" || echo "Initial Commit")
-          latest_sha=$(git rev-list --max-count=1 "$latest_name" 2>/dev/null || git rev-list --max-parents=0 "$REPO_OWNER/main")
-          echo "Latest Tag Name: $latest_name"
-          echo "Latest Tag SHA: $latest_sha"
-
           chown -R builder:builder .
-
-          # Проверяем, существует ли директория srcpkgs перед поиском
-          if [ ! -d "srcpkgs" ]; then
-            echo "Directory srcpkgs not found!"
-            touch /tmp/templates
+          
+          # Получаем актуальный хэш текущего состояния ветки после мержа
+          CURRENT_HEAD=$(git rev-parse HEAD)
+          
+          # Получаем последний релиз
+          latest_name=$(gh release view --json tagName --jq '.tagName' --repo "$REPO_OWNER/$REPO_NAME" 2>/dev/null || echo "")
+          
+          if [ -n "$latest_name" ]; then
+            base_sha=$(git rev-list -n 1 "$latest_name")
           else
-            git diff-tree -r --no-renames --name-only --diff-filter=AM "$latest_sha" "$SHA" -- 'srcpkgs/**' \
-            | cut -d/ -f 2 | sort -u | su -s /bin/sh builder -c "./xbps-src sort-dependencies" | tee /tmp/templates
+            # Если релизов нет вообще — сравниваем с корнем вашей ветки
+            base_sha=$(git rev-list --max-parents=0 myfork/main)
+          fi
+          
+          echo "🔍 Comparing $base_sha -> $CURRENT_HEAD"
+          
+          # Принудительно проверяем наличие папки
+          if [ ! -d "srcpkgs" ]; then
+            echo "❌ FATAL: Directory 'srcpkgs' does not exist after merge!"
+            ls -la
+            exit 1
+          fi
+          
+          # Используем явные хэши вместо ссылок вроде HEAD~1
+          changed=$(git diff-tree --no-commit-id --name-only -r "$base_sha".."$CURRENT_HEAD" -- 'srcpkgs/')
+          
+          echo "Changed files found:"
+          echo "$changed"
+          
+          if [ -n "$changed" ]; then
+            echo "$changed" | cut -d/ -f 2 | sort -u | su -s /bin/sh builder -c "./xbps-src sort-dependencies" | tee /tmp/templates
+          else
+            echo "No package templates found in the diff."
+            touch /tmp/templates
           fi
 
       - name: Setup void-packages and Toolchain
@@ -131,10 +154,8 @@ jobs:
           export XBPS_REPOSITORY="https://repo-default.voidlinux.org/current"
           
           if [ "${{ matrix.config.host }}" != "${{ matrix.config.arch }}" ]; then
-            echo "🚜 Bootstrapping cross-toolchain for ${{ matrix.config.arch }}..."
             yes | su -s /bin/sh builder -c "./xbps-src -a \"${{ matrix.config.arch }}\" -A \"${{ matrix.config.host }}\" binary-bootstrap"
           else
-            echo "🖥️ Bootstrapping native toolchain for ${{ matrix.config.arch }}..."
             yes | su -s /bin/sh builder -c "./xbps-src -A \"${{ matrix.config.host }}\" binary-bootstrap"
           fi
 
@@ -143,10 +164,14 @@ jobs:
         run: |
           chown -R builder:builder .
           
-          # Явно проверяем наличие шаблонов
           if [ ! -s /tmp/templates ]; then
-            echo "❌ ERROR: Template list is empty (/tmp/templates). Nothing to build."
-            echo "This usually means no files changed in srcpkgs/ or the previous step failed silently."
+            echo "❌ ERROR: Template list is empty (/tmp/templates). Debug info below:"
+            echo "Current HEAD: $(git rev-parse HEAD)"
+            echo "Contents of workspace:"
+            ls -la
+            echo "---"
+            echo "Contents of srcpkgs/:"
+            ls -la srcpkgs/ || echo "Directory missing"
             exit 1
           fi
           
@@ -155,8 +180,6 @@ jobs:
             pkgs="$pkgs $line"
           done < /tmp/templates
           
-          echo "Found packages to build:$pkgs"
-          
           BUILD_ENV="export XBPS_CHROOT_CMD=uchroot && export XBPS_USE_MOUNTFS=no && export XBPS_REPOSITORY=$XBPS_REPOSITORY && "
           
           SUCCESS_COUNT=0
@@ -164,31 +187,24 @@ jobs:
           
           for pkg in $pkgs; do
             TOTAL_COUNT=$((TOTAL_COUNT + 1))
-            (
-              echo "🏗️ Building $pkg for ${{ matrix.config.arch }}..."
-              
-              if [ "${{ matrix.config.host }}" = "${{ matrix.config.arch }}" ]; then
-                CMD="./xbps-src -f pkg -j$(nproc) -A \"${{ matrix.config.host }}\" \"$pkg\""
-              else
-                CMD="./xbps-src -f pkg -j$(nproc) -a \"${{ matrix.config.arch }}\" -A \"${{ matrix.config.host }}\" \"$pkg\""
-              fi
-              
-              if su -s /bin/sh builder -c "$BUILD_ENV $CMD"; then
-                echo "✅ Success: $pkg"
-                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-              else
-                echo "❌ CRITICAL FAILURE building: $pkg"
-                exit 1
-              fi
-            )
-            wait $! # Ждем завершения текущего процесса, чтобы падать немедленно
+            CMD="./xbps-src -f pkg -j$(nproc) -A \"${{ matrix.config.host }}\" \"$pkg\""
+            
+            if [ "${{ matrix.config.host }}" != "${{ matrix.config.arch }}" ]; then
+              CMD="./xbps-src -f pkg -j$(nproc) -a \"${{ matrix.config.arch }}\" -A \"${{ matrix.config.host }}\" \"$pkg\""
+            fi
+            
+            if su -s /bin/sh builder -c "$BUILD_ENV $CMD"; then
+              echo "✅ Success: $pkg"
+              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            else
+              echo "❌ CRITICAL FAILURE building: $pkg"
+              exit 1
+            fi
           done
           
           echo "build-success-count=$SUCCESS_COUNT" >> $GITHUB_OUTPUT
           echo "build-total-count=$TOTAL_COUNT" >> $GITHUB_OUTPUT
-          
-          SHORT_SHA=$(git rev-parse --short "$SHA")
-          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "SHORT_SHA=$(git rev-parse --short "$SHA")" >> $GITHUB_OUTPUT
 
       - name: Check build status
         if: steps.build.outputs.build-success-count == '0'
@@ -203,21 +219,17 @@ jobs:
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
         run: |
           set -e
-          # Выходим, если папка пуста, чтобы не ломать индексацию
           if [ ! -f "*.xbps" ] 2>/dev/null; then
             echo "No .xbps files found. Skipping index/signing."
             exit 0
           fi
-          
           su -s /bin/sh builder -c "xbps-rindex --remove-obsoletes \".\""
-          
           if [ -n "$PRIVKEY" ]; then
             printf "%s\n" "$PRIVKEY" > key.pem
             su -s /bin/sh builder -c "xbps-rindex --privkey key.pem --sign --signedby \"${REPO_NAME}-github-actions\" --verbose \".\""
             su -s /bin/sh builder -c "xbps-rindex --privkey key.pem --sign-pkg --verbose ./*.xbps"
             su -s /bin/sh builder -c "rm -f key.pem"
           fi
-          
           su -s /bin/sh builder -c "xbps-rindex --clean \".\""
 
       - name: Generate checksums
