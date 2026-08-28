@@ -31,17 +31,25 @@ jobs:
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
 
     steps:
-      # --- ШАГ 1: Установка XBPS через APT (без ручных загрузок) ---
-      - name: Install dependencies on runner
+      # --- ШАГ 1: Установка ОФИЦИАЛЬНОГО статического xbps через GitHub API ---
+      - name: Install official static xbps
         run: |
-          sudo apt-get update
+          echo "🔧 Setting up Official Void Linux tools..."
           
-          # Удаляем старые попытки ручной установки, если они были
-          if [ -f /usr/local/bin/xbps-static ]; then sudo rm -f /usr/local/bin/xbps-*; fi
+          # Скачиваем официальный тарболл прямо из релизов void-linux/xbps-stable-binaries
+          curl -L -o /tmp/xbps-static.tar.xz https://github.com/void-linux/xbps-stable-binaries/releases/latest/download/xbps-static-latest.x86_64-static.tar.xz
           
-          # Устанавливаем официальную версию из репозитория Ubuntu
-          sudo apt-get install -y xbps-bin libarchive-tools wget gnupg git curl jq build-essential autoconf automake libtool pkg-config python3 qemu-user-static binfmt-support
+          sudo tar -xJf /tmp/xbps-static.tar.xz -C /usr/local/bin --strip-components=1 ./usr/bin/xbps-static ./usr/bin/xbps-uhelper
+          sudo chmod +x /usr/local/bin/xbps-static /usr/local/bin/xbps-uhelper
+          
+          rm -f /tmp/xbps-static.tar.xz
+          
+          # Проверяем установку
+          /usr/local/bin/xbps-static --version
             
+          # Создаем системного пользователя builder
+          id builder >/dev/null 2>&1 || sudo useradd -G xbuilder -M builder -s /bin/bash
+      
       - name: Checkout and setup repository
         uses: actions/checkout@v6
         with:
@@ -91,6 +99,7 @@ jobs:
           changed=$(git diff-tree --no-commit-id --name-only -r "$base_sha".."$CURRENT_HEAD" -- 'srcpkgs/')
           
           if [ -n "$changed" ]; then
+            export PATH="/usr/local/bin:$PATH"
             echo "$changed" | cut -d/ -f 2 | sort -u | su -s /bin/sh builder -c "./xbps-src sort-dependencies" | tee /tmp/templates
           else
             echo "⚠️ No package templates found in the diff."
@@ -104,13 +113,9 @@ jobs:
           
           cp etc/defaults/master.conf etc/defaults.conf
           
-          # Принудительно задаем режим uchroot (он есть внутри пакета xbps-bin)
           export XBPS_CHROOT_CMD=uchroot
           export XBPS_USE_MOUNTFS=no
           export XBPS_REPOSITORY="https://repo-default.voidlinux.org/current"
-          
-          # ЭТО КРИТИЧНО ДЛЯ КРОСС-КОМПИЛЯЦИИ:
-          # Мы говорим системе сборки, какой процессор целевого устройства нам нужен
           export XBPS_TARGET_ARCH=${{ matrix.config.arch }}
           
           echo "XBPS_CHROOT_CMD=$XBPS_CHROOT_CMD" >> $GITHUB_ENV
@@ -118,25 +123,19 @@ jobs:
           echo "XBPS_REPOSITORY=$XBPS_REPOSITORY" >> $GITHUB_ENV
           echo "XBPS_TARGET_ARCH=$XBPS_TARGET_ARCH" >> $GITHUB_ENV
           
-          # Создаем пользователя один раз
-          id builder >/dev/null 2>&1 || sudo useradd -G xbuilder -M builder -s /bin/bash
+          # Инициализация хоума билдера
+          sudo mkdir -p /home/builder
+          sudo chown builder:builder /home/builder
           
-          # Инициализация базы данных пакетов от имени builder
-          su -s /bin/sh builder -c "xbps-install -Syu"
-          
-          if [ "${{ matrix.config.host }}" != "${{ matrix.config.arch }}" ]; then
-            echo "🚜 Bootstrapping CROSS toolchain for ${{ matrix.config.arch }}..."
-            yes | su -s /bin/sh builder -c "./xbps-src -a \"${{ matrix.config.arch }}\" -A \"${{ matrix.config.host }}\" binary-bootstrap"
-          else
-            echo "🖥️ Bootstrapping NATIVE toolchain for ${{ matrix.config.arch }}..."
-            yes | su -s /bin/sh builder -c "./xbps-src -A \"${{ matrix.config.host }}\" binary-bootstrap"
-          fi
-
+          # Первый запуск создает структуру папок master/tools
+          yes | su -s /bin/sh builder -c "export HOME=/home/builder && ./xbps-src -A \"${{ matrix.config.host }}\" binary-bootstrap"
+      
       - name: Build pkgs     
         id: build
         run: |
           export PATH="/usr/local/bin:$PATH"
           export XBPS_TARGET_ARCH=${{ matrix.config.arch }}
+          export HOME=/home/builder
           
           if [ ! -s /tmp/templates ]; then
             echo "❌ FATAL ERROR: Template list is empty after all checks."
@@ -187,6 +186,7 @@ jobs:
         run: |
           set -e
           export PATH="/usr/local/bin:$PATH"
+          export HOME=/home/builder
           if [ ! -f "*.xbps" ] 2>/dev/null; then
             echo "No .xbps files found. Skipping index/signing."
             exit 0
@@ -204,6 +204,7 @@ jobs:
         working-directory: ./hostdir/binpkgs
         run: |
           export PATH="/usr/local/bin:$PATH"
+          export HOME=/home/builder
           rm -rf *.sha256sum *.sha512sum
           count=$(echo *.xbps 2>/dev/null)
           if [ "$count" != "*.xbps" ]; then
