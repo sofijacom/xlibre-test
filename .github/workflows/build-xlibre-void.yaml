@@ -124,15 +124,20 @@ jobs:
       - name: Setup void-packages and Toolchain
         run: |
           chown -R builder:builder .
-          echo XBPS_BUILD_ENVIRONMENT=void-packages-ci >> etc/conf
-          echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
-          echo XBPS_CHROOT_CMD=uchroot >> etc/conf
           
-          # Гарантируем использование мастер-ветки внутри среды сборки
-          rm -f etc/defaults.conf
+          # 1. Очищаем старые настройки и копируем дефолтные
           rm -f etc/conf
-          cp etc/defaults/master.conf etc/defaults.conf
+          cp etc/defaults.conf etc/conf
           
+          # 2. Принудительно указываем ветку master для всех репозиториев внутри xbps-src
+          echo "XBPS_REPO=https://repo-default.voidlinux.org/current/musl/x86_64-musl https://repo-default.voidlinux.org/current/musl/aarch64-musl" >> etc/conf
+          echo "XBPS_MASTER_REPOSITORY=https://repo-default.voidlinux.org/current" >> etc/conf
+          
+          # Более надежный способ: переопределение через переменную окружения XBPS_REPOSITORY
+          # Это заставит xbps-src игнорировать файлы в /etc/xbps.d/ хоста и брать пакеты из ветки current (которая содержит aarch64)
+          export XBPS_REPOSITORY="https://repo-default.voidlinux.org/current"
+          
+          # Для кросс-компиляции под musl часто требуется явное указание пути к тулчейну
           if [ "${{ matrix.config.host }}" != "${{ matrix.config.arch }}" ]; then
             echo "🚜 Bootstrapping cross-toolchain for ${{ matrix.config.arch }}..."
             yes | su -s /bin/sh builder -c "./xbps-src -a \"${{ matrix.config.arch }}\" -A \"${{ matrix.config.host }}\" binary-bootstrap"
