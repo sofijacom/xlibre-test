@@ -49,25 +49,22 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:
+      # --- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ДЛЯ AARCH64 ---
       - name: Prepare container and switch to master branch
         run: |
-          # Переключаем систему хоста на ветку master через основной конфиг xbps
-          if [ -f /etc/xbps.d/00-repository-main.conf ]; then
-            echo "Switching host repository to master branch..."
-            xbps-pkgdb --repository-mode master void
-          else
-            echo "Warning: Main repo config not found at 00-repository-main.conf"
-          fi
-
+          # Переключаем систему хоста на актуальную ветку пакетов
+          xbps-pkgdb --repository-mode master void || true
+          
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           
-          # Обновляем индексы уже после переключения ветки
+          # Обновляем индексы после смены ветки
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
           
+          # Устанавливаем только необходимые утилиты (без sudo)
           env -u XBPS_TARGET_ARCH xbps-install -y bash curl grep jq git xz zip unzip github-cli xtools
           useradd -G xbuilder -M builder -s /bin/sh
-          
+            
       - name: Checkout xlibre
         uses: actions/checkout@v6
         with:
@@ -121,23 +118,29 @@ jobs:
           git diff-tree -r --no-renames --name-only --diff-filter=AM "$latest_sha" "$SHA" -- 'srcpkgs/**' \
           | cut -d/ -f 2 | sort -u | su -s /bin/sh builder -c "./xbps-src sort-dependencies" | tee /tmp/templates
 
+      # --- НАСТРОЙКА СРЕДЫ БЕЗ BASH-СПЕЦИФИКИ ---
       - name: Setup void-packages and Toolchain
         run: |
           chown -R builder:builder .
           
-          # 1. Очищаем старые настройки и копируем дефолтные
+          # Очищаем старые настройки
           rm -f etc/conf
+          
+          # Копируем дефолтный конфиг (в нем прописаны пути к current/master)
           cp etc/defaults.conf etc/conf
           
-          # 2. Принудительно указываем ветку master для всех репозиториев внутри xbps-src
-          echo "XBPS_REPO=https://repo-default.voidlinux.org/current/musl/x86_64-musl https://repo-default.voidlinux.org/current/musl/aarch64-musl" >> etc/conf
-          echo "XBPS_MASTER_REPOSITORY=https://repo-default.voidlinux.org/current" >> etc/conf
+          # Принудительно отключаем проблемные namespaces и используем uchroot
+          # ЭТО РЕШАЕТ ПРОБЛЕМУ: ERROR failed to write to /proc/self/uid_map
+          echo "XBPS_CHROOT_CMD=uchroot" >> etc/conf
+          echo "XBPS_USE_MOUNTFS=no" >> etc/conf
           
-          # Более надежный способ: переопределение через переменную окружения XBPS_REPOSITORY
-          # Это заставит xbps-src игнорировать файлы в /etc/xbps.d/ хоста и брать пакеты из ветки current (которая содержит aarch64)
+          # Экспортируем переменные для текущего шага (подстраховка)
+          export XBPS_CHROOT_CMD=uchroot
+          export XBPS_USE_MOUNTFS=no
+          
+          # Явно указываем зеркало с поддержкой ARM/aarch64
           export XBPS_REPOSITORY="https://repo-default.voidlinux.org/current"
           
-          # Для кросс-компиляции под musl часто требуется явное указание пути к тулчейну
           if [ "${{ matrix.config.host }}" != "${{ matrix.config.arch }}" ]; then
             echo "🚜 Bootstrapping cross-toolchain for ${{ matrix.config.arch }}..."
             yes | su -s /bin/sh builder -c "./xbps-src -a \"${{ matrix.config.arch }}\" -A \"${{ matrix.config.host }}\" binary-bootstrap"
@@ -149,6 +152,7 @@ jobs:
       - name: Build pkgs     
         run: |
           chown -R builder:builder .
+          
           pkgs=""
           while IFS= read -r line; do
             pkgs="$pkgs $line"
@@ -159,20 +163,25 @@ jobs:
           export PKG_COUNT=0
           export FAIL_COUNT=0
           
+          # Передаем переменные среды прямо внутрь вызова su,
+          # чтобы xbps-src гарантированно их увидел при входе в chroot
+          BUILD_ENV="export XBPS_CHROOT_CMD=uchroot && export XBPS_USE_MOUNTFS=no && export XBPS_REPOSITORY=$XBPS_REPOSITORY && "
+          
           for pkg in $pkgs; do
             (
               echo "🏗️ Building $pkg for ${{ matrix.config.arch }}..."
+              
               if [ "${{ matrix.config.host }}" = "${{ matrix.config.arch }}" ]; then
-                if ! su -s /bin/sh builder -c "./xbps-src -f pkg -j$(nproc) -A \"${{ matrix.config.host }}\" \"$pkg\""; then
-                  echo "❌ Failed building: $pkg"
-                  exit 1
-                fi
+                CMD="./xbps-src -f pkg -j$(nproc) -A \"${{ matrix.config.host }}\" \"$pkg\""
               else
-                if ! su -s /bin/sh builder -c "./xbps-src -f pkg -j$(nproc) -a \"${{ matrix.config.arch }}\" -A \"${{ matrix.config.host }}\" \"$pkg\""; then
+                CMD="./xbps-src -f pkg -j$(nproc) -a \"${{ matrix.config.arch }}\" -A \"${{ matrix.config.host }}\" \"$pkg\""
+              fi
+              
+              if ! su -s /bin/sh builder -c "$BUILD_ENV $CMD"; then
                   echo "❌ Failed building: $pkg"
                   exit 1
-                fi
               fi
+              
               echo "✅ Success: $pkg"
             ) &
           done
@@ -202,6 +211,7 @@ jobs:
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
         run: |
           set -e
+          # Все вызовы теперь идут от пользователя builder без sudo
           su -s /bin/sh builder -c "xbps-rindex --remove-obsoletes \".\""
           
           if [ -n "$PRIVKEY" ]; then
@@ -239,4 +249,3 @@ jobs:
             ./hostdir/binpkgs/*.xbps
             ./hostdir/binpkgs/*.sig2
             ./hostdir/binpkgs/*repodata
-            
