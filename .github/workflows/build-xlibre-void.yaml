@@ -19,7 +19,7 @@ concurrency:
 jobs:
   build:
     name: Build 📦 ${{ matrix.config.arch }}
-    runs-on: ubuntu-latest # Запускаемся напрямую на виртуалке Github
+    runs-on: ubuntu-latest # Работаем нативно без docker container/run
     permissions:
       contents: write
     strategy:
@@ -31,24 +31,30 @@ jobs:
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
 
     steps:
-      # --- ШАГ 1: Подготовка системы ---
+      # --- ШАГ 1: Подготовка системы хоста ---
       - name: Install dependencies on runner
         run: |
           sudo apt-get update
-          # Устанавливаем сам xbps из родных репозиториев Ubuntu
           sudo apt-get install -y xz-utils wget gnupg git curl jq build-essential autoconf automake libtool pkg-config python3
           
-          # Скачиваем статический бинарник xbps (он умеет кросс-компиляцию из коробки)
           if [ ! -f /usr/local/bin/xbps-static ]; then
-            echo "📥 Downloading static xbps..."
-            sudo wget -O /tmp/xbps-static-latest.x86_64.tar.xz https://alpha.de.repo.voidlinux.org/static/xbps-static-latest.x86_64.tar.xz
-            sudo tar -xJf /tmp/xbps-static-latest.x86_64.tar.xz -C /usr/local/bin --strip-components=1 usr/sbin/xbps-uhelper usr/bin/xbps-static
-            rm -f /tmp/xbps-static-latest.x86_64.tar.xz
-            sudo chmod +x /usr/local/bin/xbps-static
+            echo "📥 Downloading static xbps from official repo..."
+            mkdir -p /tmp/xbps-download
+            cd /tmp/xbps-download
+            
+            # Используем официальный домен с валидным сертификатом
+            wget https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64.tar.xz
+            
+            tar -xJf xbps-static-latest.x86_64.tar.xz --strip-components=1 ./usr/bin/xbps-uhelper ./usr/bin/xbps-static
+            
+            sudo mv xbps-* /usr/local/bin/
+            sudo chmod +x /usr/local/bin/xbps-static /usr/local/bin/xbps-uhelper
+            
+            cd /
+            rm -rf /tmp/xbps-download
           fi
           
-          # Создаем пользователя builder
-          sudo useradd -G xbuilder -M builder -s /bin/bash || true
+          id builder >/dev/null 2>&1 || sudo useradd -G xbuilder -M builder -s /bin/bash
             
       - name: Checkout and setup repository
         uses: actions/checkout@v6
@@ -99,7 +105,7 @@ jobs:
           changed=$(git diff-tree --no-commit-id --name-only -r "$base_sha".."$CURRENT_HEAD" -- 'srcpkgs/')
           
           if [ -n "$changed" ]; then
-            echo "$changed" | cut -d/ -f 2 | sort -u | ./xbps-src sort-dependencies | tee /tmp/templates
+            echo "$changed" | cut -d/ -f 2 | sort -u | su -s /bin/sh builder -c "./xbps-src sort-dependencies" | tee /tmp/templates
           else
             echo "⚠️ No package templates found in the diff."
             touch /tmp/templates
@@ -107,16 +113,14 @@ jobs:
 
       - name: Setup void-packages environment
         run: |
+          export PATH="/usr/local/bin:$PATH"
           sudo chown -R builder:builder .
           
-          # Копируем конфиг master ветки внутрь директории tools
           cp etc/defaults/master.conf etc/defaults.conf
           
-          # Экспортируем переменные среды для всего последующего шага
           export XBPS_CHROOT_CMD=uchroot
           export XBPS_USE_MOUNTFS=no
           export XBPS_REPOSITORY="https://repo-default.voidlinux.org/current"
-          export PATH="/usr/local/bin:$PATH" # Чтобы использовался наш скачанный xbps-static
           
           echo "XBPS_CHROOT_CMD=$XBPS_CHROOT_CMD" >> $GITHUB_ENV
           echo "XBPS_USE_MOUNTFS=$XBPS_USE_MOUNTFS" >> $GITHUB_ENV
