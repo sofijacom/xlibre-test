@@ -26,14 +26,13 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          # Для примера оставим только целевые архитектуры
+          # Оставим только целевые архитектуры из вашего запроса
           - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
           - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
   
-    # РЕКОМЕНДАЦИЯ: Используем специализированный кросс-образ Void
     container:
-      image: ghcr.io/void-linux/void-musl-cross
+      image: ghcr.io/void-linux/void-glibc-full:current # Используем конкретный существующий тег 'current'
       options: --platform linux/amd64 --privileged
       volumes:
         - /dev:/dev
@@ -47,33 +46,24 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:
-      # --- ШАГ 1: СНАЧАЛА ПРОВЕРКА КОДА ---
       - name: Checkout and setup repository
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0 # Полная история для поиска base_sha
+          fetch-depth: 0
       
-      # Подготавливаем права до начала любых операций с файлами
       - name: Prepare workspace permissions
         run: |
           chown -R runner:docker .
           
-      # --- ШАГ 2: ТЕПЕРЬ МЕРЖ ---
       - name: Merge fork into void-packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "🔗 Adding remote $REPO_OWNER..."
           git remote add myfork https://github.com/"$REPO_OWNER"/"$REPO_NAME".git || true
           git fetch myfork main --depth=100
-          
-          echo "🤝 Merging changes from $REPO_OWNER/main..."
-          # Если мерж падает из-за конфликтов, используем стратегию "принять всё их"
           git merge --no-commit --strategy-recursive -Xtheirs myfork/main || true
           
           mkdir -p hostdir/binpkgs
-          
-          # Очистка бинарников перед новым запуском
           rm -f hostdir/binpkgs/*.xbps.sig2
           
           cd hostdir/binpkgs || exit 1
@@ -86,19 +76,19 @@ jobs:
           done
           cd - > /dev/null || exit 1
 
-      # --- ШАГ 3: ПОДГОТОВКА КОНТЕЙНЕРА И ТУЛЧЕЙНА ---
-      - name: Prepare system repositories
+      - name: Prepare system repositories and install tools
         run: |
-          # В образе void-musl-cross уже есть нужные инструменты, но обновим индексы
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           useradd -G xbuilder -M builder -s /bin/sh
+            
+          # Устанавливаем xtools (содержит xbps-src cross-tools) и другие зависимости
+          env -u XBPS_TARGET_ARCH xbps-install -y bash curl grep jq git zip unzip github-cli xtools ca-certificates
             
       - name: Identify changes to build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CURRENT_HEAD=$(git rev-parse HEAD)
-          
           latest_name=$(gh release view --json tagName --jq '.tagName' --repo "$REPO_OWNER/$REPO_NAME" 2>/dev/null || echo "")
           
           if [ -n "$latest_name" ]; then
@@ -108,8 +98,6 @@ jobs:
           fi
           
           echo "🔍 Comparing $base_sha -> $CURRENT_HEAD"
-          
-          # ОТЛАДКА: Покажем содержимое директории
           echo "📁 Contents of ./srcpkgs/:"
           ls -la srcpkgs/
           
@@ -135,10 +123,11 @@ jobs:
           export XBPS_REPOSITORY="https://repo-default.voidlinux.org/current"
           
           if [ "${{ matrix.config.host }}" != "${{ matrix.config.arch }}" ]; then
-            echo "🚜 Bootstrapping cross-toolchain for ${{ matrix.config.arch }}..."
+            echo "🚜 Bootstrapping CROSS toolchain for ${{ matrix.config.arch }}..."
+            # Для кросс-компиляции обязательно указываем хост через -A
             yes | su -s /bin/sh builder -c "./xbps-src -a \"${{ matrix.config.arch }}\" -A \"${{ matrix.config.host }}\" binary-bootstrap"
           else
-            echo "🖥️ Bootstrapping native toolchain for ${{ matrix.config.arch }}..."
+            echo "🖥️ Bootstrapping NATIVE toolchain for ${{ matrix.config.arch }}..."
             yes | su -s /bin/sh builder -c "./xbps-src -A \"${{ matrix.config.host }}\" binary-bootstrap"
           fi
 
@@ -150,11 +139,8 @@ jobs:
           if [ ! -s /tmp/templates ]; then
             echo "❌ FATAL ERROR: Template list is empty after all checks."
             echo "--- DEBUG INFO ---"
-            echo "Current working dir:"
             pwd
-            echo "List of files in root:"
             ls -la
-            echo "Contents of /tmp/templates:"
             cat /tmp/templates || echo "(file missing)"
             echo "------------------"
             exit 1
