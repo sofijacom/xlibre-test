@@ -27,11 +27,11 @@ jobs:
       matrix:
         config:
           - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
-          #- { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
+          - { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
           - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
-          #- { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
+          - { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
           - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
-          #- { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
+          - { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
   
     container:
@@ -49,19 +49,13 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:
-      # --- КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ДЛЯ AARCH64 ---
       - name: Prepare container and switch to master branch
         run: |
-          # Переключаем систему хоста на актуальную ветку пакетов
           xbps-pkgdb --repository-mode master void || true
           
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
-          
-          # Обновляем индексы после смены ветки
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
-          
-          # Устанавливаем только необходимые утилиты (без sudo)
           env -u XBPS_TARGET_ARCH xbps-install -y bash curl grep jq git xz zip unzip github-cli xtools
           useradd -G xbuilder -M builder -s /bin/sh
             
@@ -115,30 +109,25 @@ jobs:
 
           chown -R builder:builder .
 
-          git diff-tree -r --no-renames --name-only --diff-filter=AM "$latest_sha" "$SHA" -- 'srcpkgs/**' \
-          | cut -d/ -f 2 | sort -u | su -s /bin/sh builder -c "./xbps-src sort-dependencies" | tee /tmp/templates
+          # Проверяем, существует ли директория srcpkgs перед поиском
+          if [ ! -d "srcpkgs" ]; then
+            echo "Directory srcpkgs not found!"
+            touch /tmp/templates
+          else
+            git diff-tree -r --no-renames --name-only --diff-filter=AM "$latest_sha" "$SHA" -- 'srcpkgs/**' \
+            | cut -d/ -f 2 | sort -u | su -s /bin/sh builder -c "./xbps-src sort-dependencies" | tee /tmp/templates
+          fi
 
-      # --- НАСТРОЙКА СРЕДЫ БЕЗ BASH-СПЕЦИФИКИ ---
       - name: Setup void-packages and Toolchain
         run: |
           chown -R builder:builder .
-          
-          # Очищаем старые настройки
           rm -f etc/conf
-          
-          # Копируем дефолтный конфиг (в нем прописаны пути к current/master)
           cp etc/defaults.conf etc/conf
-          
-          # Принудительно отключаем проблемные namespaces и используем uchroot
-          # ЭТО РЕШАЕТ ПРОБЛЕМУ: ERROR failed to write to /proc/self/uid_map
           echo "XBPS_CHROOT_CMD=uchroot" >> etc/conf
           echo "XBPS_USE_MOUNTFS=no" >> etc/conf
           
-          # Экспортируем переменные для текущего шага (подстраховка)
           export XBPS_CHROOT_CMD=uchroot
           export XBPS_USE_MOUNTFS=no
-          
-          # Явно указываем зеркало с поддержкой ARM/aarch64
           export XBPS_REPOSITORY="https://repo-default.voidlinux.org/current"
           
           if [ "${{ matrix.config.host }}" != "${{ matrix.config.arch }}" ]; then
@@ -150,8 +139,16 @@ jobs:
           fi
 
       - name: Build pkgs     
+        id: build
         run: |
           chown -R builder:builder .
+          
+          # Явно проверяем наличие шаблонов
+          if [ ! -s /tmp/templates ]; then
+            echo "❌ ERROR: Template list is empty (/tmp/templates). Nothing to build."
+            echo "This usually means no files changed in srcpkgs/ or the previous step failed silently."
+            exit 1
+          fi
           
           pkgs=""
           while IFS= read -r line; do
@@ -160,14 +157,13 @@ jobs:
           
           echo "Found packages to build:$pkgs"
           
-          export PKG_COUNT=0
-          export FAIL_COUNT=0
-          
-          # Передаем переменные среды прямо внутрь вызова su,
-          # чтобы xbps-src гарантированно их увидел при входе в chroot
           BUILD_ENV="export XBPS_CHROOT_CMD=uchroot && export XBPS_USE_MOUNTFS=no && export XBPS_REPOSITORY=$XBPS_REPOSITORY && "
           
+          SUCCESS_COUNT=0
+          TOTAL_COUNT=0
+          
           for pkg in $pkgs; do
+            TOTAL_COUNT=$((TOTAL_COUNT + 1))
             (
               echo "🏗️ Building $pkg for ${{ matrix.config.arch }}..."
               
@@ -177,29 +173,25 @@ jobs:
                 CMD="./xbps-src -f pkg -j$(nproc) -a \"${{ matrix.config.arch }}\" -A \"${{ matrix.config.host }}\" \"$pkg\""
               fi
               
-              if ! su -s /bin/sh builder -c "$BUILD_ENV $CMD"; then
-                  echo "❌ Failed building: $pkg"
-                  exit 1
+              if su -s /bin/sh builder -c "$BUILD_ENV $CMD"; then
+                echo "✅ Success: $pkg"
+                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+              else
+                echo "❌ CRITICAL FAILURE building: $pkg"
+                exit 1
               fi
-              
-              echo "✅ Success: $pkg"
-            ) &
+            )
+            wait $! # Ждем завершения текущего процесса, чтобы падать немедленно
           done
           
-          wait
-          
-          if ls hostdir/binpkgs/*.xbps 1> /dev/null 2>&1; then
-            PKG_COUNT=$(ls -1 hostdir/binpkgs/*.xbps | wc -l)
-          else
-            PKG_COUNT=0
-          fi
+          echo "build-success-count=$SUCCESS_COUNT" >> $GITHUB_OUTPUT
+          echo "build-total-count=$TOTAL_COUNT" >> $GITHUB_OUTPUT
           
           SHORT_SHA=$(git rev-parse --short "$SHA")
-          echo "package_count=$PKG_COUNT" >> $GITHUB_OUTPUT
           echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_OUTPUT
 
       - name: Check build status
-        if: steps.build.outputs.package_count == '0'
+        if: steps.build.outputs.build-success-count == '0'
         run: |
           echo "No packages were built successfully."
           exit 1
@@ -211,7 +203,12 @@ jobs:
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
         run: |
           set -e
-          # Все вызовы теперь идут от пользователя builder без sudo
+          # Выходим, если папка пуста, чтобы не ломать индексацию
+          if [ ! -f "*.xbps" ] 2>/dev/null; then
+            echo "No .xbps files found. Skipping index/signing."
+            exit 0
+          fi
+          
           su -s /bin/sh builder -c "xbps-rindex --remove-obsoletes \".\""
           
           if [ -n "$PRIVKEY" ]; then
@@ -227,10 +224,12 @@ jobs:
         working-directory: ./hostdir/binpkgs
         run: |
           rm -rf *.sha256sum *.sha512sum
-          for file in *.xbps; do
-            [ -e "$file" ] || break
-            sha256sum "$file" | awk '{print $1}' > "${file}.sha256sum"
-          done
+          count=$(echo *.xbps 2>/dev/null)
+          if [ "$count" != "*.xbps" ]; then
+            for file in *.xbps; do
+              sha256sum "$file" | awk '{print $1}' > "${file}.sha256sum"
+            done
+          fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
