@@ -30,7 +30,7 @@ jobs:
           #- { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
           - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
           #- { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
-          #- { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
+          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
           #- { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
   
@@ -49,14 +49,16 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:
-      - name: Prepare container
+      - name: Prepare container and switch to master branch
         run: |
-          sudo xbps-pkgdb -m master
+          # Переключаем систему хоста на ветку master, где есть repodata для ARM/aarch64
+          xbps-pkgdb -m master
           
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
-          env -u XBPS_TARGET_ARCH xbps-install -y sudo curl grep jq git xz zip unzip github-cli xtools
+          # Устанавливаем только необходимые утилиты без sudo
+          env -u XBPS_TARGET_ARCH xbps-install -y bash curl grep jq git xz zip unzip github-cli xtools
           useradd -G xbuilder -M builder -s /bin/sh
             
       - name: Checkout xlibre
@@ -82,7 +84,6 @@ jobs:
           
           rm -f hostdir/binpkgs/*.xbps.sig2
           
-          # Очистка без использования shopt (POSIX compliant)
           cd hostdir/binpkgs || exit 1
           for f in *-"$ARCH"*; do
             [ -e "$f" ] || continue
@@ -111,7 +112,7 @@ jobs:
           chown -R builder:builder .
 
           git diff-tree -r --no-renames --name-only --diff-filter=AM "$latest_sha" "$SHA" -- 'srcpkgs/**' \
-          | cut -d/ -f 2 | sort -u | sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
+          | cut -d/ -f 2 | sort -u | su -s /bin/sh builder -c "./xbps-src sort-dependencies" | tee /tmp/templates
 
       - name: Setup void-packages and Toolchain
         run: |
@@ -120,16 +121,17 @@ jobs:
           echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
           echo XBPS_CHROOT_CMD=uchroot >> etc/conf
           
+          # Гарантируем использование мастер-ветки внутри среды сборки
           rm -f etc/defaults.conf
           rm -f etc/conf
           cp etc/defaults/master.conf etc/defaults.conf
           
           if [ "${{ matrix.config.host }}" != "${{ matrix.config.arch }}" ]; then
             echo "🚜 Bootstrapping cross-toolchain for ${{ matrix.config.arch }}..."
-            yes | sudo -Eu builder ./xbps-src -a "${{ matrix.config.arch }}" -A "${{ matrix.config.host }}" binary-bootstrap
+            yes | su -s /bin/sh builder -c "./xbps-src -a \"${{ matrix.config.arch }}\" -A \"${{ matrix.config.host }}\" binary-bootstrap"
           else
             echo "🖥️ Bootstrapping native toolchain for ${{ matrix.config.arch }}..."
-            yes | sudo -Eu builder ./xbps-src -A "${{ matrix.config.host }}" binary-bootstrap
+            yes | su -s /bin/sh builder -c "./xbps-src -A \"${{ matrix.config.host }}\" binary-bootstrap"
           fi
 
       - name: Build pkgs     
@@ -149,12 +151,12 @@ jobs:
             (
               echo "🏗️ Building $pkg for ${{ matrix.config.arch }}..."
               if [ "${{ matrix.config.host }}" = "${{ matrix.config.arch }}" ]; then
-                if ! sudo -Eu builder ./xbps-src -f pkg -j$(nproc) -A "${{ matrix.config.host }}" "$pkg"; then
+                if ! su -s /bin/sh builder -c "./xbps-src -f pkg -j$(nproc) -A \"${{ matrix.config.host }}\" \"$pkg\""; then
                   echo "❌ Failed building: $pkg"
                   exit 1
                 fi
               else
-                if ! sudo -Eu builder ./xbps-src -f pkg -j$(nproc) -a "${{ matrix.config.arch }}" -A "${{ matrix.config.host }}" "$pkg"; then
+                if ! su -s /bin/sh builder -c "./xbps-src -f pkg -j$(nproc) -a \"${{ matrix.config.arch }}\" -A \"${{ matrix.config.host }}\" \"$pkg\""; then
                   echo "❌ Failed building: $pkg"
                   exit 1
                 fi
@@ -188,16 +190,16 @@ jobs:
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
         run: |
           set -e
-          sudo -Eu builder xbps-rindex --remove-obsoletes "."
+          su -s /bin/sh builder -c "xbps-rindex --remove-obsoletes \".\""
           
           if [ -n "$PRIVKEY" ]; then
             printf "%s\n" "$PRIVKEY" > key.pem
-            sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose "."
-            sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose ./*.xbps
-            sudo -Eu builder rm -f key.pem
+            su -s /bin/sh builder -c "xbps-rindex --privkey key.pem --sign --signedby \"${REPO_NAME}-github-actions\" --verbose \".\""
+            su -s /bin/sh builder -c "xbps-rindex --privkey key.pem --sign-pkg --verbose ./*.xbps"
+            su -s /bin/sh builder -c "rm -f key.pem"
           fi
           
-          sudo -Eu builder xbps-rindex --clean "."
+          su -s /bin/sh builder -c "xbps-rindex --clean \".\""
 
       - name: Generate checksums
         working-directory: ./hostdir/binpkgs
@@ -225,3 +227,4 @@ jobs:
             ./hostdir/binpkgs/*.xbps
             ./hostdir/binpkgs/*.sig2
             ./hostdir/binpkgs/*repodata
+            
