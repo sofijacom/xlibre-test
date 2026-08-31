@@ -33,15 +33,12 @@ jobs:
 
           CUTOFF_EPOCH=$(date -d "-${MIN_AGE_DAYS} days" +%s)
 
+          # Объявляем счётчики ДО цикла
           deleted_count=0
           skipped_count=0
 
-          gh run list \
-            --repo "$OWNER/$REPO" \
-            --branch "$BRANCH" \
-            --limit 250 \
-            --json databaseId,createdAt \
-            --jq '.[] | [.databaseId, .createdAt] | @tsv' | while IFS=$'\t' read -r run_id created_at; do
+          # Читаем построчно без подшелла: используем while через перенаправление, а не пайп
+          while IFS=$'\t' read -r run_id created_at; do
             if [ -z "$run_id" ]; then
               continue
             fi
@@ -49,22 +46,29 @@ jobs:
             RUN_EPOCH=$(date -d "$created_at" +%s 2>/dev/null)
             if [ -z "$RUN_EPOCH" ]; then
               echo "Warning: could not parse date for run $run_id, skipping"
-              ((skipped_count++)) || true
+              ((skipped_count++)) 2>/dev/null || true
               continue
             fi
 
             if [ "$RUN_EPOCH" -lt "$CUTOFF_EPOCH" ]; then
               echo "Deleting run ID: $run_id (created: $created_at)"
               if gh api repos/"$OWNER"/"$REPO"/actions/runs/"$run_id" -X DELETE --silent; then
-                ((deleted_count++)) || true
+                ((deleted_count++)) 2>/dev/null || true
               else
                 echo "Failed to delete run $run_id"
               fi
             else
               echo "Skipping run ID: $run_id (created: $created_at, younger than $MIN_AGE_DAYS days)"
-              ((skipped_count++)) || true
+              ((skipped_count++)) 2>/dev/null || true
             fi
-          done
+          done < <(
+            gh run list \
+              --repo "$OWNER/$REPO" \
+              --branch "$BRANCH" \
+              --limit 250 \
+              --json databaseId,createdAt \
+              --jq '.[] | [.databaseId, .createdAt] | @tsv'
+          )
 
           echo "=== Summary ==="
           echo "Deleted runs: $deleted_count"
