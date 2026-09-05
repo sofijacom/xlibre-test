@@ -205,9 +205,9 @@ jobs:
           name: ${{ env.SHORT_SHA }}
           tag_name: ${{ env.TAG }}
           files: |
-            ./hostdir/binpkgs/x86_64/*
-            ./hostdir/binpkgs/i686/*
-            ./hostdir/binpkgs/x86_64-musl/*
+            ./hostdir/binpkgs/x86_64/*.xbps
+            ./hostdir/binpkgs/i686/*.sig2
+            ./hostdir/binpkgs/x86_64-musl/*repodata
             
             #./hostdir/binpkgs/*.xbps
             #./hostdir/binpkgs/*.sig2
