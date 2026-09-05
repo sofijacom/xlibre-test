@@ -1,4 +1,4 @@
-name: 🏗️ Build XLibre test for VOID linux
+name: 🏗️ Build XLibre for VOID linux
 
 env:
   TAG: workflow-${{ github.run_number }}
@@ -47,7 +47,14 @@ jobs:
         SHA: '${{ env.SHA }}'
         ARCH: '${{ matrix.config.arch }}'
         HOST: '${{ matrix.config.host }}'
-        XBPS_TARGET_ARCH: '${{ matrix.config.arch }}'
+        # НЕ задаём здесь глобальный XBPS_TARGET_ARCH: если он установлен в
+        # окружении контейнера, xbps-src при binary-bootstrap также пытается
+        # синхронизировать репозитории для этой "целевой" арки способом,
+        # рассчитанным на x86_64-раскладку путей (`current/<arch>-repodata`),
+        # а не на реальную (вложенную) структуру, которая есть у aarch64/armv7l
+        # и т.п. — отсюда 404 и "Package 'base-chroot' not found". Целевая
+        # архитектура полностью управляется явными флагами `-A`/`-a` внутри
+        # каждой команды xbps-src, отдельная переменная окружения тут не нужна.
         REPO_OWNER: "${{ github.repository_owner }}"
         REPO_NAME: "${{ github.event.repository.name }}"
     if: ${{ github.ref == 'refs/heads/main' }}
