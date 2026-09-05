@@ -29,7 +29,7 @@ jobs:
           # --- native (host == arch): построение выполняется без кросс-компиляции ---
           - { arch: x86_64,       host: x86_64,      libc: glibc }
           #- { arch: i686,         host: i686,        libc: glibc }
-          #- { arch: x86_64-musl,  host: x86_64-musl, libc: musl  }
+          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl  }
           # --- cross (host != arch): host должен нативно исполняться на amd64-раннере,
           #     а arch собирается кросс-тулчейном внутри host-chroot через `-a` ---
           - { arch: aarch64,      host: x86_64,      libc: glibc }
