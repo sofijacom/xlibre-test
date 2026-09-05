@@ -1,4 +1,4 @@
-name: 🏗️ Build XLibre for VOID linux
+name: 🏗️ Build XLibre test for VOID linux
 
 env:
   TAG: workflow-${{ github.run_number }}
@@ -151,25 +151,25 @@ jobs:
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
         run: |
           for ARCH in x86_64 i686 x86_64-musl; do
-          DIR="./${ARCH}"
-          [ -d "$DIR" ] || continue
-          ls "$DIR"/*.xbps >/dev/null 2>&1 || continue
+            DIR="./${ARCH}"
+            [ -d "$DIR" ] || continue
+            ls "$DIR"/*.xbps >/dev/null 2>&1 || continue
 
-          if [ -n "${PRIVKEY}" ]; then
-            printf "%s\n" "${PRIVKEY}" > key.pem
-            chmod 600 key.pem
+            if [ -n "${PRIVKEY}" ]; then
+              printf "%s\n" "${PRIVKEY}" > key.pem
+              chmod 600 key.pem
 
-            sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose "$DIR"
-            sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose "$DIR"
+              sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose "$DIR"
+              sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose "$DIR"
 
-            rm key.pem
-          else
-            sudo -Eu builder xbps-rindex --clean "$DIR"
-          fi
+              rm key.pem
+            else
+              sudo -Eu builder xbps-rindex --clean "$DIR"
+            fi
 
-          # Важно: xbps-rindex сам создаёт repodata в этой папке.
-          # Мы просто оставляем его как есть (имя repodata внутри папки — это ок).
-        done
+            # Важно: xbps-rindex сам создаёт repodata в этой папке.
+            # Мы просто оставляем его как есть (имя repodata внутри папки — это ок).
+          done
         
       - name: 🔢 checksum
         working-directory: ./hostdir/binpkgs
