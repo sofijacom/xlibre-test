@@ -5,7 +5,7 @@ version=25.0.0
 revision=3
 build_style=gnu-configure
 configure_args="--prefix=/usr"
-hostmakedepends="pkg-config xorg-util-macros autoconf automake libtool git gawk"
+hostmakedepends="pkg-config xlibre-xserver-devel xorgproto xorg-util-macros autoconf automake libtool git gawk"
 makedepends="xlibre-xserver-devel xorgproto gawk gettext libpciaccess-devel"
 depends="virtual?xserver-abi-video-25_1"
 short_desc="XLibre fork of X.Org 3dfx Voodoo1/Voodoo2 2D video driver"
