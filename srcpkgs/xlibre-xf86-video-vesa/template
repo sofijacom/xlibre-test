@@ -7,8 +7,7 @@ revision=3
 build_style=gnu-configure
 configure_args="--prefix=/usr"
 hostmakedepends="pkg-config xlibre-xserver-devel xorgproto xorg-util-macros autoconf automake libtool git gawk"
-makedepends="xlibre-xserver-devel xorgproto xorg-util-macros fakeroot gawk gettext pkgconf"
-makedepends="xlibre-xserver-devel xorgproto fakeroot gawk gettext pkgconf libX11-devel base-devel"
+makedepends="xlibre-xserver-devel xorgproto fakeroot gawk gettext pkgconf libX11-devel base-devel libpciaccess-devel"
 depends="virtual?xserver-abi-video-25_1"
 short_desc="XLibre fork of X.Org vesa video driver"
 maintainer="Sofiya <sofiya@v.com>"
@@ -21,6 +20,10 @@ checksum=8d517cbd93a42b202cf624e8f56b646aa5efacd44e001f809fea6c5c08f8dfe7
 
 CFLAGS="-I$XBPS_CROSS_BASE/usr/include/xorg"
 LDFLAGS="-Wl,-z,lazy"
+
+post_patch() {
+    touch ${wrksrc}/src/vbe.h
+}
 
 pre_configure() {
   NOCONFIGURE=1 ./autogen.sh
