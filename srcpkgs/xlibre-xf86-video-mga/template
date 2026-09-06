@@ -21,7 +21,7 @@ LDFLAGS="-Wl,-z,lazy"
 CFLAGS="-fcommon"
 
 pre_configure() {
-	NOCONFIGURE=1 autoreconf -if
+	NOCONFIGURE=1 ./autogen.sh
 }
 
 post_install() {
