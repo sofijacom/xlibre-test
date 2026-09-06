@@ -19,6 +19,9 @@ distfiles="https://github.com/X11Libre/${_pkgname}/archive/refs/tags/${pkgname}-
 checksum=41c760d547989d0b120b76e299c2b2611f13fb063838fb6c3fa7fe26eb756fbe
 
 pre_configure() {
+	export ac_cv_func_ioperm=no
+	export ac_cv_func_iopl=no
+
 	NOCONFIGURE=1 ./autogen.sh
 }
 
