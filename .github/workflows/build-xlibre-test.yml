@@ -154,6 +154,7 @@ jobs:
         env:
           PRIVKEY: ${{ secrets.PRIV_KEY }}
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
+        shell: bash
         run: |
           BINPKGS_DIR="$PWD"
           
