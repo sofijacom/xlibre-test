@@ -154,10 +154,22 @@ jobs:
         env:
           PRIVKEY: ${{ secrets.PRIV_KEY }}
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
-        shell: bash
+        shell: bash # Используем bash для поддержки mapfile/процессов
         run: |
-          BINPKGS_DIR="$PWD"
+          # КРИТИЧНО: используем абсолютный путь вместо $PWD,
+          # чтобы избежать путаницы с текущей директорией workflow.
+          BINPKGS_DIR="${GITHUB_WORKSPACE}/hostdir/binpkgs"
           
+          echo "📍 Working in absolute path: ${BINPKGS_DIR}"
+
+          # Гарантируем ПОЛНЫЕ права доступа для пользователя builder перед началом работы
+          echo "🔑 Ensuring write permissions for 'builder'..."
+          chmod -R u+rwX "${BINPKGS_DIR}"
+          
+          # Явно возвращаем владение папкой пользователю builder, 
+          # так как rindex будет запущен через sudo -Eu builder
+          chown -R builder:builder "${BINPKGS_DIR}"
+
           mapfile -t xbps_files < <(find . -maxdepth 1 -type f -name '*.xbps')
           
           if [ ${#xbps_files[@]} -eq 0 ]; then
@@ -172,7 +184,8 @@ jobs:
             echo "🔐 Signing packages..."
             printf "%s\n" "${PRIVKEY}" > key.pem
             
-            sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose "$BINPKGS_DIR"
+            # Передаем полный путь к индексу
+            sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose "${BINPKGS_DIR}"
             sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose "${xbps_files[@]}"
             
             rm -f key.pem
@@ -181,8 +194,8 @@ jobs:
           fi
 
           echo "🧼 Final index cleanup..."
-          sudo -Eu builder xbps-rindex --clean "$BINPKGS_DIR"
-
+          sudo -Eu builder xbps-rindex --clean "${BINPKGS_DIR}"
+          
       - name: 🔢 checksum
         working-directory: ./hostdir/binpkgs
         run: |
