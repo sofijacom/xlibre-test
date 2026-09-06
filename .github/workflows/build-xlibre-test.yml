@@ -157,7 +157,7 @@ jobs:
               sudo -Eu builder ./xbps-src pkg -j$(nproc) -m masterdir-${HOST} -A ${HOST} "${pkg}" || printf "Failed building ${pkg}!\n"
             else
               # кросс-сборка: -a задаёт цель, -A/-m остаются на нативном host chroot'е
-              sudo -Eu builder ./xbps-src pkg -j$(nproc) -m masterdir-${ARCH} -A ${HOST} -a ${ARCH} "${pkg}" || printf "Failed building ${pkg}!\n"
+              sudo -Eu builder ./xbps-src pkg -j$(nproc) -m masterdir-${HOST} -A ${HOST} -a ${ARCH} "${pkg}" || printf "Failed building ${pkg}!\n"
             fi
           done
       # -----------------------------------------------------------
