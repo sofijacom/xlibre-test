@@ -18,25 +18,8 @@ homepage="https://github.com/X11Libre/xf86-input-vmmouse"
 distfiles="https://github.com/X11Libre/${_pkgname}/archive/refs/tags/${pkgname}-${version}.tar.gz"
 checksum=41c760d547989d0b120b76e299c2b2611f13fb063838fb6c3fa7fe26eb756fbe
 
-disable_check=yes
-
 pre_configure() {
-	export ac_cv_func_ioperm=no
-	export ac_cv_func_iopl=no
-
-	vsed -i configure.ac \
-		-e '/AC_DEFINE.*VMMOUSE_OS_/d' \
-		-e '/use_.*_iopl=/d' \
-		-e '/AC_CHECK_LIB.*iopl/d' \
-		-e '/AC_CHECK_FUNCS.*iop[er][ml]/d' \
-		-e 's|AM_CONFIG_HEADER|AC_CONFIG_HEADERS|g'
-
-	if [ ! -f "configure" ]; then
-		NOCONFIGURE=1 ./autogen.sh
-	fi
-
-	echo "#define HAVE_IOPERM 0" >> config.h.in
-	echo "#define HAVE_IOPL 0" >> config.h.in
+	NOCONFIGURE=1 ./autogen.sh
 }
 
 post_install() {
