@@ -22,13 +22,11 @@ disable_check=yes # Тесты требуют запущенного X-серв�
 
 pre_configure() {
 	export ac_cv_func_ioperm=no
-	# Удаляем проверку ioperm/iopl на этапе автогенерации,
-	# так как она не нужна в виртуальных окружениях и ломается под sandbox
 	vsed -i configure.ac \
 		-e '/AC_CHECK_FUNC.*iop[er][ml]/d' \
-		-e '/AC_DEFINE.*VMMOUSE_OS_GENERIC/d'
+		-e 's|AC_DEFINE(VMMOUSE_OS_GENERIC, 1)|AC_DEFINE(VMMOUSE_OS_GENERIC, 1, [Building for iopl \/ ioperm capable OS])|' \
+		-e 's|AM_CONFIG_HEADER|AC_CONFIG_HEADERS|g'
 
-	# Запускаем autogen.sh только если нет готового скрипта configure
 	if [ ! -f "configure" ]; then
 		NOCONFIGURE=1 ./autogen.sh
 	fi
