@@ -1,4 +1,4 @@
-name: 🏗️ Build Packages (Overwrite Release)
+name: Build-releases
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    name: Build 📦 ${{ matrix.config.arch }}
+    name: Build packages
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:20250616R1
@@ -40,7 +40,7 @@ jobs:
             mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
             sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf
             # install dependencies
-            xbps-install -Syu xbps && xbps-install -yu && xbps-install -y sudo bash curl git jq grep zip unzip github-cli xtools coreutils
+            xbps-install -Syu xbps && xbps-install -yu && xbps-install -y sudo bash curl git jq zip unzip github-cli xtools coreutils
             # create non-root user
             useradd -G xbuilder -M builder
 
@@ -95,19 +95,14 @@ jobs:
             cd void-packages
             git checkout --detach master
 
-      - name: 🐛 Fix sourcepkg.sh
-        working-directory: void-packages
-        run: |
-          sed -i 's@for var in $(awk .*;@for var in $(printenv | cut -d'"'"'='"'"' -f1);@' common/environment/setup/sourcepkg.sh
-
       - name: Merge templates and edit shlibs
         run: |
             echo "==> copying templates..."
             cp -rv extra/srcpkgs/* void-packages/srcpkgs/
 
             SHLIBS_FILE="void-packages/common/shlibs"
-            APPEND_FILE="extra/common/shlibs"
-            # REMOVE_FILE="extra/shlibs_remove"
+            APPEND_FILE="extra/shlibs_append"
+            REMOVE_FILE="extra/shlibs_remove"
 
             echo "==> updating common/shlibs..."
             if [ -f "$REMOVE_FILE" ]; then
@@ -141,30 +136,6 @@ jobs:
             sudo -Eu builder common/travis/set_mirror.sh &&
             sudo -Eu builder common/travis/prepare.sh &&
             common/travis/fetch-xtools.sh
-
-      - name: ✅ Install gawk in chroot
-        working-directory: void-packages
-        env:
-          ARCH: ${{ matrix.config.arch }}
-        run: |
-          MASTERDIR="masterdir-${ARCH}"
-
-          if [ ! -d "$MASTERDIR" ]; then
-            echo "❌ Error: $MASTERDIR does not exist"
-            exit 1
-          fi
-
-          sudo mkdir -p "$MASTERDIR/etc/xbps.d"
-          [ -d "/usr/share/xbps.d" ] && sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/" || { echo "❌ Not found /usr/share/xbps.d/"; exit 1; }
-
-          sudo mount --bind /proc "$MASTERDIR/proc" || true
-          sudo mount --bind /dev "$MASTERDIR/dev" || true
-          sudo mount --bind /sys "$MASTERDIR/sys" || true
-
-          yes | sudo chroot "$MASTERDIR" xbps-install -y gawk || { echo "❌ gawk installation failed"; sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null; exit 1; }
-          { [ -f "$MASTERDIR/usr/bin/awk" ] || [ -f "$MASTERDIR/usr/bin/gawk" ]; } || { echo "❌ awk not found"; sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null; exit 1; }
-
-          sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null
 
       - name: Build
         id: build_step
@@ -335,7 +306,7 @@ jobs:
           if [ "$code" = "404" ]; then
             echo "Creating release ${TAG}..."
             body=$(curl -s -X POST -H "$AUTH" -H "$ACCEPT" -H "Content-Type: application/json" \
-              -d "{\"tag_name\":\"${TAG}\",\"target_commitish\":\"${SHA}\",\"name\":\"Binary repo for ${ARCH}\",\"body\":\"Add with: repository=https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest/download/"}" \
+              -d "{\"tag_name\":\"${TAG}\",\"target_commitish\":\"${SHA}\",\"name\":\"Binary repository for ${ARCH}\",\"body\":\"Add with: repository=https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${TAG}\"}" \
               "${API}/releases")
           else
             # Point release at latest commit
