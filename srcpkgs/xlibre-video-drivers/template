@@ -1,4 +1,5 @@
 # Template file for 'xlibre-video-drivers'
+
 pkgname=xlibre-video-drivers
 _pkgname=xorg-video-drivers
 version=25.0.0

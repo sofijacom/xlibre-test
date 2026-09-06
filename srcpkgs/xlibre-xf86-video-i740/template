@@ -1,4 +1,5 @@
 # Template file for 'xlibre-xf86-video-i740'
+
 pkgname=xlibre-xf86-video-i740
 _pkgname=xf86-video-i740
 version=25.0.0
@@ -6,7 +7,7 @@ revision=3
 build_style=gnu-configure
 configure_args="--prefix=/usr"
 hostmakedepends="pkg-config xlibre-xserver-devel xorgproto xorg-util-macros autoconf automake libtool git gawk"
-makedepends="xlibre-xserver-devel libXi-devel xorgproto gawk autogen"
+makedepends="xlibre-xserver-devel libXi-devel libpciaccess-devel xorgproto gawk autogen"
 depends="virtual?xserver-abi-video-25_1"
 short_desc="Xlibre Intel i740 video driver"
 maintainer="Sofiya <sofiya@v.com>"

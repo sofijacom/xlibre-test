@@ -1,4 +1,5 @@
 # Template file for 'xlibre-minimal'
+
 pkgname=xlibre-minimal
 _pkgname=xorg-minimal
 version=25.1.0

@@ -1,12 +1,13 @@
 # Template file for 'xf86-input-vmmouse'
+
 pkgname=xlibre-xf86-input-vmmouse
 _pkgname=xf86-input-vmmouse
 version=25.0.0
 revision=3
 build_style=gnu-configure
 configure_args="--prefix=/usr --with-udev-rules-dir=/usr/lib/udev/rules.d"
-hostmakedepends="pkg-config xlibre-xserver-devel xorgproto xorg-util-macros autoconf automake libtool git gawk"
-makedepends="xlibre-xserver-devel fakeroot gawk gettext pkgconf xorgproto"
+hostmakedepends="pkg-config xlibre-xserver-devel xorgproto xorg-util-macros autoconf autoconf-archive automake libtool git gawk"
+makedepends="xlibre-xserver-devel fakeroot gawk gettext pkgconf xorgproto linux-headers"
 depends="virtual?xserver-abi-input-24_1"
 short_desc="XLibre fork of X.Org VMWare Mouse input driver"
 maintainer="Sofiya <sofiya@v.com>"
@@ -17,8 +18,20 @@ homepage="https://github.com/X11Libre/xf86-input-vmmouse"
 distfiles="https://github.com/X11Libre/${_pkgname}/archive/refs/tags/${pkgname}-${version}.tar.gz"
 checksum=41c760d547989d0b120b76e299c2b2611f13fb063838fb6c3fa7fe26eb756fbe
 
+disable_check=yes # Тесты требуют запущенного X-сервера
+
 pre_configure() {
-  NOCONFIGURE=1 ./autogen.sh
+	export ac_cv_func_ioperm=no
+	# Удаляем проверку ioperm/iopl на этапе автогенерации,
+	# так как она не нужна в виртуальных окружениях и ломается под sandbox
+	vsed -i configure.ac \
+		-e '/AC_CHECK_FUNC.*iop[er][ml]/d' \
+		-e '/AC_DEFINE.*VMMOUSE_OS_GENERIC/d'
+
+	# Запускаем autogen.sh только если нет готового скрипта configure
+	if [ ! -f "configure" ]; then
+		NOCONFIGURE=1 ./autogen.sh
+	fi
 }
 
 post_install() {

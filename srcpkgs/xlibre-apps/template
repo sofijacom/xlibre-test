@@ -1,4 +1,5 @@
 # Template file for 'xlibre-apps'
+
 pkgname=xlibre-apps
 _pkgname=xorg-apps
 version=25.1.0

@@ -1,9 +1,12 @@
 name: 🏗️ Build Packages (Overwrite Release)
 
+name: Build-releases
+
 on:
   push:
     branches:
         - main
+        - master
     paths:
         - 'srcpkgs/**'
   workflow_dispatch:
@@ -11,6 +14,7 @@ on:
 jobs:
   build:
     name: Build 📦 ${{ matrix.config.arch }}
+    name: Build packages
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full:20250616R1
@@ -41,6 +45,7 @@ jobs:
             sed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf
             # install dependencies
             xbps-install -Syu xbps && xbps-install -yu && xbps-install -y sudo bash curl git jq grep zip unzip github-cli xtools coreutils
+            xbps-install -Syu xbps && xbps-install -yu && xbps-install -y sudo bash curl git jq zip unzip github-cli xtools
             # create non-root user
             useradd -G xbuilder -M builder
 
@@ -108,6 +113,8 @@ jobs:
             SHLIBS_FILE="void-packages/common/shlibs"
             APPEND_FILE="extra/common/shlibs"
             # REMOVE_FILE="extra/shlibs_remove"
+            APPEND_FILE="extra/shlibs_append"
+            REMOVE_FILE="extra/shlibs_remove"
 
             echo "==> updating common/shlibs..."
             if [ -f "$REMOVE_FILE" ]; then
@@ -336,6 +343,7 @@ jobs:
             echo "Creating release ${TAG}..."
             body=$(curl -s -X POST -H "$AUTH" -H "$ACCEPT" -H "Content-Type: application/json" \
               -d "{\"tag_name\":\"${TAG}\",\"target_commitish\":\"${SHA}\",\"name\":\"Binary repo for ${ARCH}\",\"body\":\"Add with: repository=https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest/download/"}" \
+              -d "{\"tag_name\":\"${TAG}\",\"target_commitish\":\"${SHA}\",\"name\":\"Binary repository for ${ARCH}\",\"body\":\"Add with: repository=https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${TAG}\"}" \
               "${API}/releases")
           else
             # Point release at latest commit

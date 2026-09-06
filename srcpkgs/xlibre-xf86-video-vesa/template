@@ -1,4 +1,5 @@
 # Template file for 'xf86-video-vesa'
+
 pkgname=xlibre-xf86-video-vesa
 _pkgname=xf86-video-vesa
 version=25.0.0
@@ -7,6 +8,7 @@ build_style=gnu-configure
 configure_args="--prefix=/usr"
 hostmakedepends="pkg-config xlibre-xserver-devel xorgproto xorg-util-macros autoconf automake libtool git gawk"
 makedepends="xlibre-xserver-devel xorgproto xorg-util-macros fakeroot gawk gettext pkgconf"
+makedepends="xlibre-xserver-devel xorgproto fakeroot gawk gettext pkgconf libX11-devel base-devel"
 depends="virtual?xserver-abi-video-25_1"
 short_desc="XLibre fork of X.Org vesa video driver"
 maintainer="Sofiya <sofiya@v.com>"
