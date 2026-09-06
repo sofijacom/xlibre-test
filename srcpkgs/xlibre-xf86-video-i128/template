@@ -1,4 +1,5 @@
 # Template file for 'xlibre-xf86-video-i128'
+
 pkgname=xlibre-xf86-video-i128
 _pkgname=xf86-video-i128
 version=25.0.0
