@@ -306,7 +306,7 @@ jobs:
           if [ "$code" = "404" ]; then
             echo "Creating release ${TAG}..."
             body=$(curl -s -X POST -H "$AUTH" -H "$ACCEPT" -H "Content-Type: application/json" \
-              -d "{\"tag_name\":\"${TAG}\",\"target_commitish\":\"${SHA}\",\"name\":\"Binary repo for ${ARCH}\",\"body\":\"Add with: repository=https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${TAG}\"}" \
+              -d "{\"tag_name\":\"${TAG}\",\"target_commitish\":\"${SHA}\",\"name\":\"Binary repository for ${ARCH}\",\"body\":\"Add with: repository=https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${TAG}\"}" \
               "${API}/releases")
           else
             # Point release at latest commit
