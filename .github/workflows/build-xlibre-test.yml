@@ -125,6 +125,7 @@ jobs:
           sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null
 
       # -------------------- Packages to build --------------------
+      
       - name: 📦 build pkgs
         run: |
           chown -R builder:builder .
@@ -138,11 +139,14 @@ jobs:
             fi
           done
           
-          # ИСПРАВЛЕНИЕ: меняем несуществующего runneradmin на существующего runner
-          # Также добавляем проверку существования директории перед сменой владельца
+          # ИСПРАВЛЕНИЕ: используем текущий UID/GID вместо жесткого имени пользователя
           if [ -d "./hostdir/binpkgs" ]; then
-            chown -R runner:runner ./hostdir/binpkgs
+            CURRENT_UID="$(id -u)"
+            CURRENT_GID="$(id -g)"
+            echo "🔧 Fixing ownership for current user (UID:${CURRENT_UID}, GID:${CURRENT_GID})..."
+            chown -R "${CURRENT_UID}:${CURRENT_GID}" ./hostdir/binpkgs
           fi
+          
       # -----------------------------------------------------------
 
       - name: 🧾 Clean & sign
