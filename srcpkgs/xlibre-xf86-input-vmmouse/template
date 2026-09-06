@@ -18,14 +18,20 @@ homepage="https://github.com/X11Libre/xf86-input-vmmouse"
 distfiles="https://github.com/X11Libre/${_pkgname}/archive/refs/tags/${pkgname}-${version}.tar.gz"
 checksum=41c760d547989d0b120b76e299c2b2611f13fb063838fb6c3fa7fe26eb756fbe
 
-skip_extraction="autom4te.cache"
+disable_check=yes # Тесты требуют запущенного X-сервера
 
 pre_configure() {
 	export ac_cv_func_ioperm=no
+	# Удаляем проверку ioperm/iopl на этапе автогенерации,
+	# так как она не нужна в виртуальных окружениях и ломается под sandbox
 	vsed -i configure.ac \
-		-e '/AC_CHECK_FUNC.*ioperm/d' \
-		-e 's|AM_CONFIG_HEADER|AC_CONFIG_HEADERS|g'
-	NOCONFIGURE=1 ./autogen.sh
+		-e '/AC_CHECK_FUNC.*iop[er][ml]/d' \
+		-e '/AC_DEFINE.*VMMOUSE_OS_GENERIC/d'
+
+	# Запускаем autogen.sh только если нет готового скрипта configure
+	if [ ! -f "configure" ]; then
+		NOCONFIGURE=1 ./autogen.sh
+	fi
 }
 
 post_install() {
