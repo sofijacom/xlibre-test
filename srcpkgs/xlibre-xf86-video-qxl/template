@@ -21,7 +21,7 @@ checksum=ee0b0798a2fa2dd3e2494dee996cdc41ac2e43054f53b33a619960786d5b7e8c
 LDFLAGS="-Wl,-z,lazy"
 
 pre_configure() {
-	NOCONFIGURE=1 ./autogen.sh
+	autoreconf -fi
 
 	./configure \
 		--host=${XBPS_CROSS_TRIPLET} \
