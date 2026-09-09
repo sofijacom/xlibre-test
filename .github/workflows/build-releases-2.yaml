@@ -3,7 +3,7 @@ name: Build-releases
 on:
   push:
     branches:
-        - main
+        - master
     paths:
         - 'srcpkgs/**'
   workflow_dispatch:
