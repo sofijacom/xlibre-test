@@ -136,8 +136,10 @@ post_install() {
 	rm -f ${DESTDIR}/etc/X11/xorg.conf.d/10-nvidia-modules.conf.debian
 
 	# xlibre-xserver не устанавливает vbe.h как SDK-заголовок
-	if [ -f hw/xfree86/vbe/vbe.h ]; then
-		vinstall hw/xfree86/vbe/vbe.h 644 usr/include/xorg
+	if [ -d hw/xfree86/vbe ]; then
+		for f in hw/xfree86/vbe/*.h; do
+			vinstall "$f" 644 usr/include/xorg
+		done
 	fi
 
 	pkg_install() {
@@ -204,3 +206,4 @@ xlibre-xserver-devel_package() {
 		vmove usr/share/aclocal
 	}
 }
+

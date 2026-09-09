@@ -22,4 +22,3 @@ license="Public Domain"
 homepage="https://github.com/X11Libre/xserver/wiki"
 provides="xorg-apps-${version}_${revision}"
 replaces="xorg-apps>=0"
-

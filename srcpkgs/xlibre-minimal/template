@@ -19,4 +19,3 @@ maintainer="Sofiya <sofiya@v.com>"
 license="MIT"
 provides="xorg-minimal-${version}_${revision}"
 replaces="xorg-minimal>=0"
-
