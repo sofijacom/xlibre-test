@@ -90,21 +90,6 @@ jobs:
           # Remove all signature files to avoid conflicts
           rm --force hostdir/binpkgs/*.xbps.sig2
 
-      - name: Validate templates exist
-        shell: bash
-        run: |
-          pkgs=$(cat /tmp/templates 2>/dev/null || echo "")
-          missing=()
-          for pkg in $pkgs; do
-            if [ ! -d "srcpkgs/$pkg" ]; then
-              missing+=("$pkg")
-            fi
-          done
-          if [ ${#missing[@]} -ne 0 ]; then
-            echo "❌ Templates not found for: ${missing[*]}"
-            exit 1
-          fi
-
       - name: Identify changes to build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -120,6 +105,27 @@ jobs:
           git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
           | cut -d/ -f 2 | uniq | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
 
+      - name: Validate templates exist
+        run: |
+          missing=""
+          if [ -f "/tmp/templates" ]; then
+            while IFS= read -r pkg; do
+              if [ -z "$pkg" ]; then continue; fi
+              if [ ! -d "srcpkgs/$pkg" ]; then
+                if [ -z "$missing" ]; then
+                  missing="$pkg"
+                else
+                  missing="$missing $pkg"
+                fi
+              fi
+            done < /tmp/templates
+          fi
+
+          if [ -n "$missing" ]; then
+            echo "❌ Templates not found for: $missing"
+            exit 1
+          fi
+
       - name: Setup void-packages
         run: |
           chown -R builder:builder .
@@ -127,33 +133,57 @@ jobs:
           echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
           echo XBPS_CHROOT_CMD=uchroot >> etc/conf
           echo XBPS_DISABLE_CHECK=yes >> etc/conf
+          echo XBPS_USE_CROSS_COMPILER=yes >> etc/conf
 
       - name: build pkgs     
         run: |
           chown -R builder:builder .
-          pkgs=$(cat /tmp_templates 2>/dev/null || cat /tmp/templates)
           
           TARGET_ARCH="${{ matrix.config.arch }}"
           HOST_ARCH="${{ matrix.config.host }}"
           
-          # Normalize architecture flags for cross-compilation targets
+          packages=""
+          if [ -f "/tmp/templates" ]; then
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              packages="$packages $line"
+            done < /tmp/templates
+          fi
+          
+          trim() {
+            local var="$*"
+            var="${var#"${var%%[![:space:]]*}"}" 
+            var="${var%"${var##*[![:space:]]}"}"   
+            printf '%s' "$var"
+          }
+          
+          packages=$(trim "$packages")
+          
+          if [ -z "$packages" ]; then
+            echo "⚠️ No package templates detected in /tmp/templates. Skipping build."
+            exit 0
+          fi
+
           case "$TARGET_ARCH" in
-            aarch64-musl|armv6l-musl)
-              XBPS_ARCH_ARGS="-a $TARGET_ARCH"
-              ;;
-            *)
-              XBPS_ARCH_ARGS="-a $TARGET_ARCH"
+            *-musl)
+              echo "🛠️ Bootstrapping musl toolchain for $TARGET_ARCH..."
+              yes | sudo -Eu builder ./xbps-src -a "$TARGET_ARCH" -A "$HOST_ARCH" binary-bootstrap || true
+              if ! yes | sudo -Eu builder ./xbps-src -a "$TARGET_ARCH" -A "$HOST_ARCH" musl; then
+                echo "❌ Failed to install musl toolchain!"
+                exit 1
+              fi
               ;;
           esac
 
-          for pkg in $pkgs; do
+          echo "🔩 Installing base-system from source for $TARGET_ARCH..."
+          if ! yes | sudo -Eu builder ./xbps-src -a "$TARGET_ARCH" -A "$HOST_ARCH" base-system; then
+            echo "❌ Failed to install base-system!"
+            exit 1
+          fi
+
+          for pkg in $packages; do
             echo "🏗️ Building $pkg for $TARGET_ARCH..."
-            
-            # Бинарный бутстрап всегда привязан к архитектуре хоста
-            yes | sudo -Eu builder ./xbps-src -A $HOST_ARCH binary-bootstrap
-            
-            # Сборка пакета с явным указанием целевой архитектуры
-            if ! sudo -Eu builder ./xbps-src -f pkg -j$(nproc) $XBPS_ARCH_ARGS -A $HOST_ARCH "$pkg"; then
+            if ! sudo -Eu builder ./xbps-src -f pkg -j$(nproc) -a "$TARGET_ARCH" -A "$HOST_ARCH" "$pkg"; then
               printf "❌ Failed building %s for %s!\n" "$pkg" "$TARGET_ARCH"
               exit 1
             fi
@@ -207,16 +237,15 @@ jobs:
         run: |
           printf "SHORT_SHA=$(git rev-parse --short ${SHA})" >> $GITHUB_ENV
 
-      - name: release
+      - name: 🚀 Release
         uses: softprops/action-gh-release@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: ${{ env.SHORT_SHA }}
-          tag_name: ${{ env.TAG }}
+          tag_name: ${{ env.SHORT_SHA }}
+          name: Build ${{ env.SHORT_SHA }}
           files: |
-            ./hostdir/binpkgs/*.xbps
-            ./hostdir/binpkgs/*.sig2
-            ./hostdir/binpkgs/*repodata
-            #./hostdir/binpkgs/*.sha256sum
-            #./hostdir/binpkgs/*.sha512sum
+            void-packages/hostdir/binpkgs/*.xbps
+            void-packages/hostdir/binpkgs/*.sig2
+            void-packages/hostdir/binpkgs/*repodata
+            
