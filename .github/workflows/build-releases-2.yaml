@@ -147,7 +147,7 @@ jobs:
         env:
           ARCH: ${{ matrix.config.arch }}
         run: |
-          MASTERDIR="masterdir-${ARCH}"
+          MASTERDIR="${ARCH}"
 
           if [ ! -d "$MASTERDIR" ]; then
             echo "❌ Error: $MASTERDIR does not exist"
