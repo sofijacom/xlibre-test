@@ -105,88 +105,26 @@ jobs:
           git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
           | cut -d/ -f 2 | uniq | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
 
-      - name: Validate templates exist
-        run: |
-          missing=""
-          if [ -f "/tmp/templates" ]; then
-            while IFS= read -r pkg; do
-              if [ -z "$pkg" ]; then continue; fi
-              if [ ! -d "srcpkgs/$pkg" ]; then
-                if [ -z "$missing" ]; then
-                  missing="$pkg"
-                else
-                  missing="$missing $pkg"
-                fi
-              fi
-            done < /tmp/templates
-          fi
-
-          if [ -n "$missing" ]; then
-            echo "❌ Templates not found for: $missing"
-            exit 1
-          fi
-
       - name: Setup void-packages
         run: |
           chown -R builder:builder .
           echo XBPS_BUILD_ENVIRONMENT=void-packages-ci >> etc/conf
           echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
           echo XBPS_CHROOT_CMD=uchroot >> etc/conf
-          echo XBPS_DISABLE_CHECK=yes >> etc/conf
-          echo XBPS_USE_CROSS_COMPILER=yes >> etc/conf
-
+ 
       - name: build pkgs     
         run: |
           chown -R builder:builder .
-          
-          TARGET_ARCH="${{ matrix.config.arch }}"
-          HOST_ARCH="${{ matrix.config.host }}"
-          
-          packages=""
-          if [ -f "/tmp/templates" ]; then
-            while IFS= read -r line; do
-              [ -z "$line" ] && continue
-              packages="$packages $line"
-            done < /tmp/templates
+          pkgs=$(cat /tmp/templates)
+          for pkg in ${pkgs}; do
+          echo "🏗️ Building $pkg for $ARCH..."
+          if [[ "${{ matrix.config.host }}" == "${{ matrix.config.arch }}" ]]; then
+          yes | sudo -Eu builder ./xbps-src -A ${{ matrix.config.host }} binary-bootstrap
+          sudo -Eu builder ./xbps-src -f pkg -j$(nproc) -A ${{ matrix.config.host }} "${pkg}" || printf "Failed building ${pkg}!\n"
+          else
+          yes | sudo -Eu builder ./xbps-src -a ${{ matrix.config.arch }} -A ${{ matrix.config.host }} binary-bootstrap
+          sudo -Eu builder ./xbps-src -f pkg -j$(nproc) -a ${{ matrix.config.arch }} -A ${{ matrix.config.host }} "${pkg}" || printf "❌ Failed building: ${pkg}!\n"
           fi
-          
-          trim() {
-            local var="$*"
-            var="${var#"${var%%[![:space:]]*}"}" 
-            var="${var%"${var##*[![:space:]]}"}"   
-            printf '%s' "$var"
-          }
-          
-          packages=$(trim "$packages")
-          
-          if [ -z "$packages" ]; then
-            echo "⚠️ No package templates detected in /tmp/templates. Skipping build."
-            exit 0
-          fi
-
-          case "$TARGET_ARCH" in
-            *-musl)
-              echo "🛠️ Bootstrapping musl toolchain for $TARGET_ARCH..."
-              yes | sudo -Eu builder ./xbps-src -a "$TARGET_ARCH" -A "$HOST_ARCH" binary-bootstrap || true
-              if ! yes | sudo -Eu builder ./xbps-src -a "$TARGET_ARCH" -A "$HOST_ARCH" musl; then
-                echo "❌ Failed to install musl toolchain!"
-                exit 1
-              fi
-              ;;
-          esac
-
-          echo "🔩 Installing base-system from source for $TARGET_ARCH..."
-          if ! yes | sudo -Eu builder ./xbps-src -a "$TARGET_ARCH" -A "$HOST_ARCH" base-system; then
-            echo "❌ Failed to install base-system!"
-            exit 1
-          fi
-
-          for pkg in $packages; do
-            echo "🏗️ Building $pkg for $TARGET_ARCH..."
-            if ! sudo -Eu builder ./xbps-src -f pkg -j$(nproc) -a "$TARGET_ARCH" -A "$HOST_ARCH" "$pkg"; then
-              printf "❌ Failed building %s for %s!\n" "$pkg" "$TARGET_ARCH"
-              exit 1
-            fi
           done
           
       - name: Clean & sign
@@ -195,6 +133,7 @@ jobs:
           PRIVKEY: ${{ secrets.PRIV_KEY }}
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
         run: |
+          # Only run rindex if there are actually packages built (.xbps files exist)
           if ls *.xbps 1> /dev/null 2>&1; then
             sudo -Eu builder xbps-rindex --remove-obsoletes ${PWD}
             
@@ -204,7 +143,7 @@ jobs:
               sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose ${PWD}/*.xbps
               sudo -Eu builder rm -f key.pem
             else
-              echo "No PRIV_KEY found. Skipping cryptographic signing."
+              echo "No PRIV_KEY found. Skipping cryptographic signing (normal for forks)."
             fi
             
             sudo -Eu builder xbps-rindex --clean ${PWD}
@@ -217,8 +156,9 @@ jobs:
         run: |
           rm -rf *.sha256sum *.sha512sum
           
+          # Only run the loop if there are actually files ending in .xbps
           count=$(ls -1 *.xbps 2>/dev/null | wc -l)
-          if [ "$count" != "0" ]; then
+          if [ "$count" != 0 ]; then
             for file in *.xbps; do
               sha256sum "${file}" | cut -d ' ' -f 1 > "${file}.sha256sum"
               sha512sum "${file}" | cut -d ' ' -f 1 > "${file}.sha512sum"
@@ -230,22 +170,21 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.config.arch }}_repodata
+          name: ${{ matrix.config.arch }}-repodata
           path: ./hostdir/binpkgs
 
       - name: short sha
         run: |
           printf "SHORT_SHA=$(git rev-parse --short ${SHA})" >> $GITHUB_ENV
 
-      - name: 🚀 Release
+      - name: release
         uses: softprops/action-gh-release@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ env.SHORT_SHA }}
-          name: Build ${{ env.SHORT_SHA }}
+          name: ${{ env.SHORT_SHA }}
+          tag_name: ${{ env.TAG }}
           files: |
-            void-packages/hostdir/binpkgs/*.xbps
-            void-packages/hostdir/binpkgs/*.sig2
-            void-packages/hostdir/binpkgs/*repodata
-            
+            ./hostdir/binpkgs/*.xbps
+            ./hostdir/binpkgs/*.sig2
+            ./hostdir/binpkgs/*repodata
