@@ -136,11 +136,12 @@ post_install() {
 	rm -f ${DESTDIR}/etc/X11/xorg.conf.d/10-nvidia-modules.conf.debian
 
 	# xlibre-xserver не устанавливает vbe.h как SDK-заголовок
-	if [ -d hw/xfree86/vbe ]; then
-		for f in hw/xfree86/vbe/*.h; do
-			vinstall "$f" 644 usr/include/xorg
+	if [ -d ${wrksrc}/include ]; then
+		for f in ${wrksrc}/include/vbe.h ${wrksrc}/include/vbeModes.h; do
+			[ -f "$f" ] && vinstall "$f" 644 usr/include/xorg
 		done
 	fi
+
 
 	pkg_install() {
 		vmove usr/lib/xorg/protocol.txt
