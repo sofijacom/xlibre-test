@@ -1,5 +1,4 @@
 # Template file for 'xf86-video-nv'
-
 pkgname=xlibre-xf86-video-nv
 _pkgname=xf86-video-nv
 version=25.0.0

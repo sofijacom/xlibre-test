@@ -1,5 +1,4 @@
 # Template file for 'xf86-video-voodoo'
-
 pkgname=xlibre-xf86-video-voodoo
 _pkgname=xf86-video-voodoo
 version=25.0.0

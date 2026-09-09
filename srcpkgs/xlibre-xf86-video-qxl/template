@@ -1,5 +1,4 @@
 # Template file for 'xf86-video-qxl'
-
 pkgname=xlibre-xf86-video-qxl
 _pkgname=xf86-video-qxl
 version=25.0.0

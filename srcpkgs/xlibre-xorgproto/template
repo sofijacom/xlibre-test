@@ -1,5 +1,4 @@
 # Template file for 'mirror.fdo.xorgproto'
-
 pkgname=xlibre-xorgproto
 version=2025.1
 _pkgname=xorgproto

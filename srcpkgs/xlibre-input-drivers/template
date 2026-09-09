@@ -1,5 +1,4 @@
 # Template file for 'xlibre-input-drivers'
-
 pkgname=xlibre-input-drivers
 _pkgname=xorg-input-drivers
 version=25.0.0

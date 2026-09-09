@@ -1,5 +1,4 @@
 # Template file for 'xf86-video-amdgpu'
-
 pkgname=xlibre-xf86-video-amdgpu
 _pkgname=xf86-video-amdgpu
 version=25.0.3
