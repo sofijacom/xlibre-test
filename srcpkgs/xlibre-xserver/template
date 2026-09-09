@@ -135,13 +135,9 @@ post_install() {
 	rm -f ${DESTDIR}/etc/X11/xorg.conf.d/10-nvidia.conf.debian
 	rm -f ${DESTDIR}/etc/X11/xorg.conf.d/10-nvidia-modules.conf.debian
 
-	# xlibre-xserver не устанавливает vbe.h как SDK-заголовок
-	if [ -d ${wrksrc}/include ]; then
-		for f in ${wrksrc}/include/vbe.h ${wrksrc}/include/vbeModes.h; do
-			[ -f "$f" ] && vinstall "$f" 644 usr/include/xorg
-		done
-	fi
-
+	# Ставим vbe.h из исходников, meson не устанавливает их как SDK
+	find ${wrksrc} -name 'vbe.h' -exec vinstall {} 644 usr/include/xorg \;
+	find ${wrksrc} -name 'vbeModes.h' -exec vinstall {} 644 usr/include/xorg \;
 
 	pkg_install() {
 		vmove usr/lib/xorg/protocol.txt
