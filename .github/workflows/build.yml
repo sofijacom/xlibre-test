@@ -91,6 +91,7 @@ jobs:
           rm --force hostdir/binpkgs/*.xbps.sig2
 
       - name: Validate templates exist
+        shell: bash
         run: |
           pkgs=$(cat /tmp/templates 2>/dev/null || echo "")
           missing=()
