@@ -120,10 +120,10 @@ jobs:
           echo "🏗️ Building $pkg for $ARCH..."
           if [[ "${{ matrix.config.host }}" == "${{ matrix.config.arch }}" ]]; then
           yes | sudo -Eu builder ./xbps-src -A ${{ matrix.config.host }} binary-bootstrap
-          sudo -Eu builder ./xbps-src -f pkg -j$(nproc) -A ${{ matrix.config.host }} "${pkg}" || printf "Failed building ${pkg}!\n"
+          sudo -Eu builder ./xbps-src pkg -j$(nproc) -A ${{ matrix.config.host }} "${pkg}" || printf "Failed building ${pkg}!\n"
           else
           yes | sudo -Eu builder ./xbps-src -a ${{ matrix.config.arch }} -A ${{ matrix.config.host }} binary-bootstrap
-          sudo -Eu builder ./xbps-src -f pkg -j$(nproc) -a ${{ matrix.config.arch }} -A ${{ matrix.config.host }} "${pkg}" || printf "❌ Failed building: ${pkg}!\n"
+          sudo -Eu builder ./xbps-src pkg -j$(nproc) -a ${{ matrix.config.arch }} -A ${{ matrix.config.host }} "${pkg}" || printf "❌ Failed building: ${pkg}!\n"
           fi
           done
           
