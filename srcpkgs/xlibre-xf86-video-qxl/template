@@ -22,13 +22,6 @@ LDFLAGS="-Wl,-z,lazy"
 
 pre_configure() {
 	autoreconf -fi
-
-	./configure \
-		--host=${XBPS_CROSS_TRIPLET} \
-		--build=${XBPS_MACHINE}-pc-linux-gnu \
-		--prefix=/usr \
-		--disable-static \
-		"$CONFIGURE_ARGS"
 }
 
 post_install() {
