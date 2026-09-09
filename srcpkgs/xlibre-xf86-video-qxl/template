@@ -21,20 +21,8 @@ checksum=ee0b0798a2fa2dd3e2494dee996cdc41ac2e43054f53b33a619960786d5b7e8c
 LDFLAGS="-Wl,-z,lazy"
 
 pre_configure() {
-    autoreconf -fi
-
-    export CC=aarch64-linux-gnu-gcc
-    export CFLAGS="$CFLAGS"
-    export LDFLAGS="$LDFLAGS"
-
-    ./configure \
-        --host=aarch64-linux-gnu \
-        --build=x86_64-pc-linux-gnu \
-        --prefix=/usr \
-        --disable-static \
-        "$CONFIGURE_ARGS"
+  NOCONFIGURE=1 ./autogen.sh
 }
-
 
 post_install() {
   vlicense COPYING
