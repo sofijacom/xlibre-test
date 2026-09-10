@@ -118,15 +118,27 @@ jobs:
         run: |
           echo "🔍 Identifying changed packages..."
           
-          # Меняем владельца ТОЛЬКО рабочих папок ДО любых git операций
+          # Обновляем данные о remote-ветках. Это критично для detached HEAD в CI.
+          git fetch origin main --depth=1000 || true
+          
           chown -R builder:builder srcpkgs hostdir etc .git || true
           
-          # Ищем последний релиз. Если его нет -- берем самый первый коммит ветки main
           latest_name=$(gh release view --json tagName --jq '.tagName' --repo $REPO_OWNER/$REPO_NAME 2>/dev/null || echo "")
           
           if [ -z "$latest_name" ]; then
             echo "No releases found. Comparing against the initial commit of main."
-            latest_sha=$(git rev-list --max-parents=0 origin/main)
+            
+            # Проверяем, есть ли у текущего SHA родители
+            PARENTS=$(git rev-list --parents -n 1 "${SHA}" | wc -w)
+            
+            if [ "$PARENTS" -gt 1 ]; then
+              # Если родитель есть, сравниваем с корнем ветки main
+              latest_sha=$(git rev-list --max-parents=0 origin/main)
+            else
+              # Если это самый первый коммит в репозитории (root commit),
+              # используем пустой хеш, чтобы diff-tree выдал все файлы.
+              latest_sha=$(git hash-object --stdin </dev/null)
+            fi
           else
             echo "Found release: $latest_name"
             latest_sha=$(git rev-list --max-count=1 "$latest_name")
@@ -134,7 +146,6 @@ jobs:
           
           echo "Comparing range: $latest_sha ... $SHA"
           
-          # Собираем список измененных ПАПОК в srcpkgs
           CHANGED_PKGS=$(git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
             | cut -d/ -f 2 | sort -u)
             
