@@ -55,7 +55,8 @@ jobs:
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
-          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq git xz zip unzip github-cli xtools coreutils
+          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq git xz zip unzip github-cli xtools coreutils binfmt-support qemu-user-static
+          update-binfmts --enable
           useradd -G xbuilder -M builder -s $(which bash)
             
       - name: Checkout xlibre
@@ -65,10 +66,23 @@ jobs:
           ref: master
           path: void-packages
 
+      # --- НАЧАЛО НОВОГО ШАГА КЭШИРОВАНИЯ ---
+      - name: Cache void-packages directories
+        uses: actions/cache@v4
+        id: cache-restore
+        with:
+          path: |
+            void-packages/masterdir
+            void-packages/hostdir/distfiles
+          key: void-cache-${{ matrix.config.arch }}-${{ matrix.config.host }}-{{ hashFiles('srcpkgs/**/template') }}
+          restore-keys: |
+            void-cache-${{ matrix.config.arch }}-${{ matrix.config.host }}-
+      # --- КОНЕЦ НОВОГО ШАГА ---
+
       - name: 🐛 Fix sourcepkg.sh — replace awk with shell parameter expansion
         working-directory: void-packages
         run: |
-          sed -i 's@for var in $(awk .*;@for var in $(printenv | cut -d'"'"'='"'"' -f1);@' common/environment/setup/sourcepkg.sh
+          sed -i "s@for var in \$(awk .*;@for var in \$(printenv | cut -d'=' -f1);@" common/environment/setup/sourcepkg.sh
           
       - name: Merge this repository into void-linux/void-packages
         working-directory: void-packages
@@ -107,43 +121,43 @@ jobs:
           echo "Latest Tag Name: ${latest_name}"
           echo "Latest Tag SHA: ${latest_sha}"
 
-          chown -R builder:builder .
-
+          # Меняем владельца ТОЛЬКО рабочих папок, сохраняя .git доступным
+          chown -R builder:builder srcpkgs hostdir etc
+          
           # This compares the last release against the new commit and ONLY builds what changed
           git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
-          | cut -d/ -f 2 | uniq | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
+          | cut -d/ -f 2 | uniq | sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
 
       - name: Setup void-packages
         working-directory: void-packages
         run: |
-          chown -R builder:builder .
+          chown -R builder:builder srcpkgs hostdir etc
           mkdir -p etc
-          echo XBPS_SHELL=/bin/bash >> etc/conf
+          # Фиксируем оболочку ПЕРВЫМ делом
+          echo XBPS_SHELL=/bin/bash > etc/conf
           echo XBPS_BUILD_ENVIRONMENT=void-packages-ci >> etc/conf
           echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
           echo XBPS_CHROOT_CMD=uchroot >> etc/conf
           echo 'XBPS_REPOSITORY=$PWD/hostdir/binpkgs' >> etc/conf
           echo 'XBPS_DISTDIR=$PWD/hostdir/distfiles' >> etc/conf
           echo 'XBPS_MASTERDIR_PKGS="$PWD/hostdir/binpkgs"' >> etc/conf
+
+      - name: Setup emulation and bootstrap masterdir
+        working-directory: void-packages
+        env:
+          ARCH: ${{ matrix.config.arch }}
+          HOST: ${{ matrix.config.host }}
+        run: |
+          chown -R builder:builder srcpkgs hostdir etc
           
-      #- name: build pkgs
-      #  working-directory: void-packages
-      #   env:
-      #    ARCH: ${{ matrix.config.arch }}
-      #    HOST: ${{ matrix.config.host }}
-      #  run: |
-      #    chown -R builder:builder .
-      #    pkgs=$(cat /tmp/templates)
-      #    for pkg in ${pkgs}; do
-      #    echo "🏗️ Building $pkg for $ARCH..."
-      #    if [[ "${{ matrix.config.host }}" == "${{ matrix.config.arch }}" ]]; then
-      #    yes | sudo -Eu builder ./xbps-src -A "${{ matrix.config.host }}" binary-bootstrap
-      #    sudo -Eu builder ./xbps-src pkg -j$(nproc) -A "${{ matrix.config.host }}" "${pkg}" || printf "Failed building ${pkg}!\n"
-      #    else
-      #    yes | sudo -Eu builder ./xbps-src -a "${{ matrix.config.arch }}" -A "${{ matrix.config.host }}" binary-bootstrap
-      #    sudo -Eu builder ./xbps-src pkg -j$(nproc) -a "${{ matrix.config.arch }}" -A "${{ matrix.config.host }}" "${pkg}" || printf "❌ Failed building: ${pkg}!\n"
-      #    fi
-      #    done
+          echo "🐧 Bootstrapping masterdir for $ARCH using host $HOST..."
+          
+          # Если кэш восстановился, xbps-src увидит готовый masterdir и пропустит тяжелый этап распаковки base-system
+          if [[ "$HOST" == "$ARCH" ]]; then
+            yes | sudo -Eu builder ./xbps-src -A "$HOST" binary-bootstrap
+          else
+            yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
+          fi
       
       - name: build pkgs
         working-directory: void-packages
@@ -151,17 +165,17 @@ jobs:
           ARCH: ${{ matrix.config.arch }}
           HOST: ${{ matrix.config.host }}
         run: |
-          chown -R builder:builder .
+          chown -R builder:builder srcpkgs hostdir etc
           pkgs=$(cat /tmp/templates)
     
+          echo "📦 Starting build loop for packages in this commit..."
+      
           for pkg in $pkgs; do
             echo "🏗️ Building $pkg for $ARCH..."
-      
+            
             if [[ "${{ matrix.config.host }}" == "${{ matrix.config.arch }}" ]]; then
-              yes | sudo -Eu builder ./xbps-src -A "${{ matrix.config.host }}" binary-bootstrap
               sudo -Eu builder ./xbps-src pkg -j$(nproc) -A "${{ matrix.config.host }}" "$pkg" || printf "Failed building %s!\n" "$pkg"
             else
-              yes | sudo -Eu builder ./xbps-src -a "${{ matrix.config.arch }}" -A "${{ matrix.config.host }}" binary-bootstrap
               sudo -Eu builder ./xbps-src pkg -j$(nproc) -a "${{ matrix.config.arch }}" -A "${{ matrix.config.host }}" "$pkg" || printf "❌ Failed building: %s!\n" "$pkg"
             fi
           done
@@ -212,13 +226,12 @@ jobs:
             # Если пакетов нет, оставляем папку абсолютно чистой от служебных файлов
             rm -f *-repodata *.sig2 || true
           fi
-            
+          
       - name: checksum
         working-directory: void-packages/hostdir/binpkgs
         run: |
           rm -rf *.sha256sum *.sha512sum
           
-          # Only run the loop if there are actually files ending in .xbps
           count=$(ls -1 *.xbps 2>/dev/null | wc -l)
           if [ "$count" != 0 ]; then
             for file in *.xbps; do
@@ -239,6 +252,14 @@ jobs:
         run: |
           printf "SHORT_SHA=$(git rev-parse --short ${SHA})" >> $GITHUB_ENV
 
+      - name: Save cache (Save step is automatic, but we ensure distfiles are saved too)
+        uses: actions/cache@v4
+        with:
+          path: |
+            void-packages/masterdir
+            void-packages/hostdir/distfiles
+          key: ${{ steps.cache-restore.outputs.key }}
+        
       - name: release
         uses: softprops/action-gh-release@v3
         env:
