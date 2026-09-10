@@ -173,34 +173,45 @@ jobs:
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
           TARGET_ARCH: ${{ matrix.config.arch }}
         run: |
-            echo "🧹 Preparing directory for $TARGET_ARCH..."
+          echo "🧹 Preparing directory for $TARGET_ARCH..."
+          
+          # Удаляем ТОЛЬКО свой файл реподаты перед началом, 
+          # чтобы избежать дублирования или конфликтов со старыми данными
+          rm -f "${TARGET_ARCH}-repodata" *.sig2 || true
+
+          # Проверяем наличие собранных пакетов
+          if compgen -G "*.xbps" > /dev/null; then
+            echo "📦 Found packages for $TARGET_ARCH, running indexer with strict path filter..."
             
-            # 1. Жестко удаляем все .xbps, которые НЕ соответствуют целевой архитектуре
-            find . -maxdepth 1 -type f -name "*.xbps" ! -name "*$TARGET_ARCH*" -delete
+            # Очистка от старых версий того же пакета внутри текущего арха
+            sudo -Eu builder xbps-rindex --remove-obsoletes .
             
-            # Удаляем подписи старых версий, чтобы они не попали в релиз
-            rm -f *.sig2
+            # Генерация метаданных строго по текущему каталогу
+            sudo -Eu builder xbps-rindex --repolist . --sign --signedby "${REPO_NAME}-github-actions" --verbose .
             
-            # 2. Только теперь проверяем, остались ли вообще пакеты
-            if compgen -G "*.xbps" > /dev/null; then
-              echo "📦 Found packages, running indexer..."
-              
-              sudo -Eu builder xbps-rindex --remove-obsoletes .
-              
-              if [ -n "${PRIVKEY}" ]; then
-                printf "%s\n" "${PRIVKEY}" > key.pem
-                sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose .
-                sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose *.xbps
-                rm -f key.pem
-              else
-                echo "No PRIV_KEY found. Skipping cryptographic signing."
-              fi
-              
-              # Очистка после подписания
-              sudo -Eu builder xbps-rindex --clean .
+            # Подписываем сами бинарные пакеты (.xbps)
+            if [ -n "${PRIVKEY}" ]; then
+              printf "%s\n" "${PRIVKEY}" > key.pem
+              sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose *.xbps
+              rm -f key.pem
             else
-              echo "❌ No packages were built for $TARGET_ARCH after filtering. Skipping indexing."
+              echo "No PRIV_KEY found. Skipping cryptographic signing."
             fi
+            
+            # Финальная очистка мусора (старые записи о версиях)
+            sudo -Eu builder xbps-rindex --clean .
+            
+            # Дополнительная страховка на случай багов старой версии xbps-rindex
+            # Если он всё же создал лишнюю repodata помимо нашей, удалим её
+            rm -f *-repodata || true
+            # Но убедимся, что наш целевой файл остался на месте (если были пакеты)
+            ls -la "${TARGET_ARCH}-repodata" 2>/dev/null || echo "Warning: Target repodata not found after indexing!"
+
+          else
+            echo "❌ No packages were built for $TARGET_ARCH. Skipping indexing and cleaning up signatures."
+            # Если пакетов нет, оставляем папку абсолютно чистой от служебных файлов
+            rm -f *-repodata *.sig2 || true
+          fi
             
       - name: checksum
         working-directory: void-packages/hostdir/binpkgs
