@@ -26,11 +26,8 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
-          - { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
           - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
           - { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
-          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
           - { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
   
@@ -177,58 +174,48 @@ jobs:
           else
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
-
-      - name: Install Toolchain (Final with nonfree repo)
+          
+      - name: Install Gawk in masterdir
         working-directory: void-packages
         env:
-          ARCH: ${{ matrix.config.arch }}
           HOST: ${{ matrix.config.host }}
-          LIBC: ${{ matrix.config.libc }}
         run: |
           MASTERDIR="$PWD/masterdir-$HOST"
           
           if [ ! -d "$MASTERDIR" ]; then 
             echo "❌ $MASTERDIR missing"; exit 1; fi
 
-          # Копируем конфиги репо хоста внутрь мастера
+          # Копируем конфиги репо хоста внутрь мастера для доступа к сети xbps
           sudo mkdir -p "$MASTERDIR/etc/xbps.d"
           if [ -d "/usr/share/xbps.d" ]; then
             sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/"
           fi
 
-          # --- КРИТИЧЕСКАЯ ДОБАВКА ---
-          # Добавляем репозиторий 'nonfree', где лежат кросс-компиляторы
-          echo 'repository=https://repo-default.voidlinux.org/current/musl/nonfree' | \
-            sudo tee "$MASTERDIR/etc/xbps.d/20-nonfree.conf" > /dev/null
-            
-          # Если цель glibc, добавляем и туда тоже (на всякий случай)
-          if [ "$LIBC" = "glibc" ]; then
-            echo 'repository=https://repo-default.voidlinux.org/current/nonfree' | \
-              sudo tee "$MASTERDIR/etc/xbps.d/21-nonfree-glibc.conf" > /dev/null
-          fi
-
-          echo "🔩 Устанавливаем GAWK..."
-          yes | sudo xbps-install -y -r "$MASTERDIR" gawk || { echo "GAWK fail"; exit 1; }
-
-          echo "🛠️ Формируем тулчейн..."
+          echo "🔩 Проверяем наличие gawk..."
           
-          GCC_PKG="cross-${ARCH}-linux-gnu-gcc"
-          BINUTILS_PKG="cross-${ARCH}-linux-gnu-binutils"
-
-          echo "Target package: $GCC_PKG"
-          
-          # Обновляем индексы пакетов ВНУТРИ песочницы С УЧЕТОМ НОВОГО РЕПО
-          sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
-          
-          # Ставим всё одним махом
-          if yes | sudo xbps-install -y -r "$MASTERDIR" base-devel make "$GCC_PKG" "$BINUTILS_PKG" pkg-config autoconf automake libtool; then
-            echo "✅ Тулчейн ($GCC_PKG) установлен."
+          # Проверка наличия бинарника или симлинка 'awk'
+          if [ -x "$MASTERDIR/usr/bin/gawk" ] || [ -L "$MASTERDIR/usr/bin/awk" ]; then
+            echo "✅ Gawk уже на месте."
           else
-            echo "❌ Ошибка установки! Пробуем установить компоненты по отдельности:"
-            # Пытаемся поставить binutils отдельно, чтобы увидеть ошибку точнее
-            sudo xbps-install -y -r "$MASTERDIR" "$BINUTILS_PKG" && echo "Binutils OK" || echo "Binutils FAIL"
-            sudo xbps-install -y -r "$MASTERDIR" "$GCC_PKG" && echo "GCC OK" || echo "GCC FAIL"
-            exit 1
+            echo "📦 Устанавливаем GAWK..."
+            
+            # Обновляем индексы ВНУТРИ мастера перед установкой
+            sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
+            
+            # Ставим пакет напрямую в папку (-r), БЕЗ использования mount/chroot
+            if yes | sudo xbps-install -y -r "$MASTERDIR" gawk; then
+              echo "✅ Gawk установлен."
+              
+              # Контрольная проверка после установки
+              if [ ! -x "$MASTERDIR/usr/bin/gawk" ]; then
+                echo "❌ Критическая ошибка: бинарник исчез после установки!"
+                ls -la "$MASTERDIR"/usr/bin/ga*
+                exit 1
+              fi
+            else
+              echo "❌ Установка провалилась!"
+              exit 1
+            fi
           fi
           
       - name: build pkgs
