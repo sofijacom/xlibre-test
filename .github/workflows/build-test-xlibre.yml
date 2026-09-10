@@ -127,7 +127,7 @@ jobs:
         working-directory: void-packages
         run: |
           chown -R builder:builder .
-          yes | sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.config.arch }} -a ${{ matrix.config.arch }} binary-bootstrap
+          yes | sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.config.host }} -A ${{ matrix.config.host }} binary-bootstrap
 
       - name: ✅ Install gawk in chroot
         working-directory: void-packages
@@ -198,7 +198,7 @@ jobs:
           pkgs=$(cat /tmp/templates)
           for pkg in ${pkgs}; do
             echo "🏗️ Building $pkg for $ARCH..."
-            sudo -Eu builder ./xbps-src pkg -j$(nproc) -m masterdir-${{ matrix.config.arch }} -a ${{ matrix.config.arch }} "${pkg}" || printf "Failed building ${pkg}!\n"
+            sudo -Eu builder ./xbps-src pkg -j$(nproc) -m masterdir-${{ matrix.config.host }} -A ${{ matrix.config.host }} -a ${{ matrix.config.arch }} "${pkg}" || printf "Failed building ${pkg}!\n"
           done
 
       # -----------------------------------------------------------
