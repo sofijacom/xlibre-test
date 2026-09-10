@@ -177,6 +177,42 @@ jobs:
           else
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
+
+      - name: Install toolchain dependencies (gawk + cross-compiler)
+        working-directory: void-packages
+        env:
+          ARCH: ${{ matrix.config.arch }}
+          HOST: ${{ matrix.config.host }}
+        run: |
+          MASTERDIR="$PWD/masterdir-$HOST"
+          
+          if [ ! -d "$MASTERDIR" ]; then 
+            echo "❌ $MASTERDIR missing"; exit 1; fi
+
+          # Копируем конфиги репо хоста внутрь мастера
+          sudo mkdir -p "$MASTERDIR/etc/xbps.d"
+          if [ -d "/usr/share/xbps.d" ]; then
+            sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/"
+          fi
+
+          echo "🔩 Устанавливаем GAWK..."
+          yes | sudo xbps-install -y -r "$MASTERDIR" gawk || { echo "GAWK fail"; exit 1; }
+
+          echo "🛠️ Устанавливаем CROSS компилятор..."
+          # Для glibc сборок нужен musl/glibc тулчейн
+          TARGET_TRIPLET="${ARCH}-linux-${LIBC:-gnu}"
+          
+          # Пытаемся установить нужный кросс-компилятор
+          if ! yes | sudo xbps-install -y -r "$MASTERDIR" "cross-$TARGET_TRIPLET"; then
+             echo "⚠️ Кросс-компилятор не найден в текущем кэше."
+             echo "🔄 Обновляем индексы внутри мастера и пробуем снова..."
+             
+             # Обновляем базу данных пакетов ВНУТРИ папки мастера через --chrootdir
+             sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
+             yes | sudo xbps-install -y -r "$MASTERDIR" "cross-$TARGET_TRIPLET" || { echo "Cross install failed!"; exit 1; }
+          fi
+
+          echo "✅ Тулчейн установлен."
           
       - name: build pkgs
         working-directory: void-packages
