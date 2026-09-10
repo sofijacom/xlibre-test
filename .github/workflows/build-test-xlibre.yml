@@ -55,7 +55,7 @@ jobs:
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
-          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq git xz zip unzip github-cli xtools
+          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq git xz zip unzip github-cli xtools coreutils
           useradd -G xbuilder -M builder -s $(which bash)
             
       - name: Checkout xlibre
@@ -63,8 +63,15 @@ jobs:
         with:
           repository: void-linux/void-packages
           ref: master
+          path: void-packages
 
+      - name: 🐛 Fix sourcepkg.sh — replace awk with shell parameter expansion
+        working-directory: void-packages
+        run: |
+          sed -i 's@for var in $(awk .*;@for var in $(printenv | cut -d'"'"'='"'"' -f1);@' common/environment/setup/sourcepkg.sh
+          
       - name: Merge this repository into void-linux/void-packages
+        working-directory: void-packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -91,6 +98,7 @@ jobs:
           rm --force hostdir/binpkgs/*.xbps.sig2
 
       - name: Identify changes to build
+        working-directory: void-packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -106,13 +114,19 @@ jobs:
           | cut -d/ -f 2 | uniq | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
 
       - name: Setup void-packages
+        working-directory: void-packages
         run: |
           chown -R builder:builder .
+          mkdir -p etc
           echo XBPS_BUILD_ENVIRONMENT=void-packages-ci >> etc/conf
           echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
           echo XBPS_CHROOT_CMD=uchroot >> etc/conf
+          echo 'XBPS_REPOSITORY=$PWD/hostdir/binpkgs' >> etc/conf
+          echo 'XBPS_DISTDIR=$PWD/hostdir/distfiles' >> etc/conf
+          echo 'XBPS_MASTERDIR_PKGS="$PWD/hostdir/binpkgs"' >> etc/conf
  
-      - name: build pkgs     
+      - name: build pkgs
+        working-directory: void-packages
         run: |
           chown -R builder:builder .
           pkgs=$(cat /tmp/templates)
@@ -128,7 +142,7 @@ jobs:
           done
           
       - name: Clean & sign
-        working-directory: ./hostdir/binpkgs
+        working-directory: void-packages/hostdir/binpkgs
         env:
           PRIVKEY: ${{ secrets.PRIV_KEY }}
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
@@ -152,7 +166,7 @@ jobs:
           fi
 
       - name: checksum
-        working-directory: ./hostdir/binpkgs
+        working-directory: void-packages/hostdir/binpkgs
         run: |
           rm -rf *.sha256sum *.sha512sum
           
@@ -171,7 +185,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.config.arch }}-repodata
-          path: ./hostdir/binpkgs
+          path: void-packages/hostdir/binpkgs
 
       - name: short sha
         run: |
@@ -185,6 +199,6 @@ jobs:
           name: ${{ env.SHORT_SHA }}
           tag_name: ${{ env.TAG }}
           files: |
-            ./hostdir/binpkgs/*.xbps
-            ./hostdir/binpkgs/*.sig2
-            ./hostdir/binpkgs/*repodata
+            void-packages/hostdir/binpkgs/*.xbps
+            void-packages/hostdir/binpkgs/*.sig2
+            void-packages/hostdir/binpkgs/*repodata
