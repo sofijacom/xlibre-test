@@ -148,17 +148,36 @@ jobs:
           ARCH: ${{ matrix.config.arch }}
           HOST: ${{ matrix.config.host }}
         run: |
+          # Принудительно включаем bash для поддержки [[ ]]
+          set +e
+          if [ -z "$BASH_VERSION" ]; then
+            echo "Switching to bash..."
+            exec /bin/bash -e "$0" "$@"
+          fi
+          
           chown -R builder:builder srcpkgs hostdir etc
           
           echo "🐧 Bootstrapping masterdir for $ARCH using host $HOST..."
           
-          # Если кэш восстановился, xbps-src увидит готовый masterdir и пропустит тяжелый этап распаковки base-system
+          # Создаем папку для мастера принудительно от root, 
+          # так как uchroot/sudo могут иметь ограничения на запись в workspace
+          mkdir -p masterdir-"$HOST"
+          chown -R builder:builder masterdir-"$HOST"
+          
+          # Экспортируем пути явно, чтобы xbps-src их гарантированно увидел
+          export XBPS_MASTERDIR="$PWD/masterdir-$HOST"
+          export XBPS_DISTDIR="$PWD/hostdir/distfiles"
+          export XBPS_REPOSITORY="$PWD/hostdir/binpkgs"
+          
+          # Включаем эмуляцию перед первым вызовом xbps-src
+          sudo update-binfmts --enable > /dev/null 2>&1 || true
+          
           if [[ "$HOST" == "$ARCH" ]]; then
             yes | sudo -Eu builder ./xbps-src -A "$HOST" binary-bootstrap
           else
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
-      
+            
       - name: build pkgs
         working-directory: void-packages
         env:
