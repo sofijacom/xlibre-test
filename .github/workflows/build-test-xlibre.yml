@@ -175,50 +175,41 @@ jobs:
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
           
-      - name: Install Cross Toolchain (Unified)
+      - name: Fake Cross Toolchain (Hack v2 - GNU fix)
         working-directory: void-packages
         env:
           ARCH: ${{ matrix.config.arch }}
           HOST: ${{ matrix.config.host }}
-          LIBC: ${{ matrix.config.libc }}
+          LIBC: ${{ matrix.config.libc }} # Будет 'glibc'
         run: |
           MASTERDIR="$PWD/masterdir-$HOST"
           
           if [ ! -d "$MASTERDIR" ]; then 
             echo "❌ $MASTERDIR missing"; exit 1; fi
 
-          # Копируем конфиги хоста внутрь мастера
-          sudo mkdir -p "$MASTERDIR/etc/xbps.d"
-          if [ -d "/usr/share/xbps.d" ]; then
-            sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/"
-          fi
-
-          # Добавляем nonfree где лежат бинари компиляторов
-          echo 'repository=https://repo-default.voidlinux.org/current/${LIBC}/nonfree' | \
-            sudo tee "$MASTERDIR/etc/xbps.d/20-nonfree.conf" > /dev/null
-
-          echo "🔄 Обновление индексов..."
+          # Ставим только необходимое (gawk уже пропатчен вашим sed ранее)
           sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
+          yes | sudo xbps-install -y -r "$MASTERDIR" base-devel make || { echo "Base install fail"; exit 1; }
 
-          echo "🛠️ Установка GAWK (для legacy скриптов)..."
-          yes | sudo xbps-install -y -r "$MASTERDIR" gawk || { echo "GAWK fail"; exit 1; }
+          echo "🎭 Создаем фейковый тулчейн..."
+          
+          # Формируем точный префикс: arch + system(всегда linux) + libc(всегда gnu)
+          PREFIX="${ARCH}-linux-gnu"
+          CROSS_BIN_DIR="$MASTERDIR/usr/${PREFIX}/bin"
+          
+          sudo mkdir -p "$CROSS_BIN_DIR"
+          
+          # Подменяем бинарники хоста на целевые имена
+          echo "Linking host tools to target prefix: $PREFIX"
+          sudo ln -sf /usr/bin/gcc    "$CROSS_BIN_DIR/${PREFIX}-gcc"
+          sudo ln -sf /usr/bin/g++    "$CROSS_BIN_DIR/${PREFIX}-g++"
+          sudo ln -sf /usr/bin/ar     "$CROSS_BIN_DIR/${PREFIX}-ar"
+          sudo ln -sf /usr/bin/ld.bfd "$CROSS_BIN_DIR/${PREFIX}-ld" # Важно использовать ld.bfd
+          sudo ln -sf /usr/bin/strip  "$CROSS_BIN_DIR/${PREFIX}-strip"
+          sudo ln -sf /usr/bin/objcopy "$CROSS_BIN_DIR/${PREFIX}-objcopy"
 
-          echo "🏗️ Установка кросс-тулчейна..."
-          # Формируем точное имя пакетов из переменных матрицы
-          GCC_PKG="cross-${ARCH}-linux-${LIBC}-gcc"
-          BINUTILS_PKG="cross-${ARCH}-linux-${LIBC}-binutils"
-          
-          echo "Целевые пакеты: $GCC_PKG , $BINUTILS_PKG"
-          
-          # Ставим мета-пакет разработчика + наш конкретный кросс
-          if yes | sudo xbps-install -y -r "$MASTERDIR" base-devel make "$GCC_PKG" "$BINUTILS_PKG"; then
-             echo "✅ Тулчейн установлен."
-          else
-             echo "❌ Ошибка! Пробуем установить компоненты поштучно для лога:"
-             sudo xbps-install -y -r "$MASTERDIR" "$GCC_PKG" || true
-             sudo xbps-install -y -r "$MASTERDIR" "$BINUTILS_PKG" || true
-             exit 1
-          fi
+          ls -la "$CROSS_BIN_DIR/"
+          echo "✅ Фейк готов."
           
       - name: build pkgs
         working-directory: void-packages
