@@ -179,7 +179,55 @@ jobs:
           else
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
-           
+
+      - name: ✅ Install gawk in chroot (Fix for awk bug)
+        working-directory: void-packages
+        env:
+          ARCH: ${{ matrix.config.arch }}
+          HOST: ${{ matrix.config.host }}
+        run: |
+          # Используем ту же переменную, что и в шаге bootstrap
+          MASTERDIR="${XBPS_MASTERDIR}"
+          
+          if [ ! -d "$MASTERDIR" ]; then 
+            echo "❌ Error: $MASTERDIR does not exist"; 
+            exit 1; 
+          fi
+
+          echo "🔧 Mounting /proc, /dev, /sys into $MASTERDIR..."
+          sudo mkdir -p "$MASTERDIR/etc/xbps.d"
+          
+          # Копируем репозитории Void внутрь будущего корня
+          if [ -d "/usr/share/xbps.d" ]; then
+            sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/"
+          else
+            echo "❌ Not found /usr/share/xbps.d/ on host!"
+            exit 1
+          fi
+
+          # Монтируем системные директории для работы пакетного менеджера внутри chroot
+          sudo mount --bind /proc "$MASTERDIR/proc" || true
+          sudo mount --bind /dev "$MASTERDIR/dev" || true
+          sudo mount --bind /sys "$MASTERDIR/sys" || true
+
+          echo "📦 Installing gawk inside the masterdir..."
+          # Внутри chroot устанавливаем утилиту. yes передает 'y' на вопросы.
+          if ! yes | sudo chroot "$MASTERDIR" xbps-install -y gawk; then
+            echo "❌ gawk installation failed"
+            sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null || true
+            exit 1
+          fi
+
+          # Проверяем, что симлинк /bin/sh или /usr/bin/awk теперь ведет на gawk
+          if [ ! -x "$MASTERDIR/usr/bin/gawk" ] && [ ! -L "$MASTERDIR/usr/bin/awk" ]; then
+            echo "❌ awk/gawk binary is missing after install"
+            sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "🧹 Cleaning up mounts..."
+          sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null || true
+          
       - name: build pkgs
         working-directory: void-packages
         env:
@@ -208,45 +256,46 @@ jobs:
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
           TARGET_ARCH: ${{ matrix.config.arch }}
         run: |
-          echo "🧹 Preparing directory for $TARGET_ARCH..."
+          # Принудительно включаем bash для этого блока
+          if [ ! -x /bin/bash ]; then
+            echo "❌ Bash не найден!"
+            exit 1
+          fi
+          exec /bin/bash <<'EOF'
           
-          # Удаляем ТОЛЬКО свой файл реподаты перед началом, 
-          # чтобы избежать дублирования или конфликтов со старыми данными
-          rm -f "${TARGET_ARCH}-repodata" *.sig2 || true
+          set -e 
+          echo "🧹 Подготовка каталога для $TARGET_ARCH..."
+          
+          # Жестко удаляем ВСЕ реподаты других архитектур до индексации
+          rm -f *-repodata || true
 
-          # Проверяем наличие собранных пакетов
-          if compgen -G "*.xbps" > /dev/null; then
-            echo "📦 Found packages for $TARGET_ARCH, running indexer with strict path filter..."
+          # Проверка наличия пакетов СТРОГО через ls, без compgen
+          if ls *.xbps 1> /dev/null 2>&1; then
+            echo "📦 Пакеты найдены, запускаю индексатор..."
             
-            # Очистка от старых версий того же пакета внутри текущего арха
             sudo -Eu builder xbps-rindex --remove-obsoletes .
             
-            # Генерация метаданных строго по текущему каталогу
-            sudo -Eu builder xbps-rindex --repolist . --sign --signedby "${REPO_NAME}-github-actions" --verbose .
-            
-            # Подписываем сами бинарные пакеты (.xbps)
             if [ -n "${PRIVKEY}" ]; then
               printf "%s\n" "${PRIVKEY}" > key.pem
+              sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose .
               sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose *.xbps
               rm -f key.pem
             else
               echo "No PRIV_KEY found. Skipping cryptographic signing."
             fi
             
-            # Финальная очистка мусора (старые записи о версиях)
             sudo -Eu builder xbps-rindex --clean .
             
-            # Дополнительная страховка на случай багов старой версии xbps-rindex
-            # Если он всё же создал лишнюю repodata помимо нашей, удалим её
-            rm -f *-repodata || true
-            # Но убедимся, что наш целевой файл остался на месте (если были пакеты)
-            ls -la "${TARGET_ARCH}-repodata" 2>/dev/null || echo "Warning: Target repodata not found after indexing!"
-
+            # Страховка: убиваем СВОЙ индекс после работы rindex, если он создал лишнее
+            # (например, пустую заглушку для хоста)
+            rm -f "${TARGET_ARCH}-repodata" || true
+            
           else
-            echo "❌ No packages were built for $TARGET_ARCH. Skipping indexing and cleaning up signatures."
-            # Если пакетов нет, оставляем папку абсолютно чистой от служебных файлов
+            echo "❌ Для $TARGET_ARCH не было собрано ни одного пакета. Пропуск индексации."
+            # Удаляем вообще всё служебное, чтобы релиз был чистым
             rm -f *-repodata *.sig2 || true
           fi
+          EOF
           
       - name: checksum
         working-directory: void-packages/hostdir/binpkgs
