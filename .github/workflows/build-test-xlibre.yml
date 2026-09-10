@@ -65,8 +65,7 @@ jobs:
           repository: void-linux/void-packages
           ref: master
           path: void-packages
-
-      # --- НАЧАЛО НОВОГО ШАГА КЭШИРОВАНИЯ ---
+          
       - name: Cache void-packages directories
         uses: actions/cache@v6.1.0
         id: cache-restore
@@ -77,9 +76,8 @@ jobs:
           key: void-cache-${{ matrix.config.arch }}-${{ matrix.config.host }}-{{ hashFiles('srcpkgs/**/template') }}
           restore-keys: |
             void-cache-${{ matrix.config.arch }}-${{ matrix.config.host }}-
-      # --- КОНЕЦ НОВОГО ШАГА ---
-
-      - name: 🐛 Fix sourcepkg.sh — replace awk with shell parameter expansion
+            
+      - name: Fix sourcepkg.sh — replace awk with shell parameter expansion
         working-directory: void-packages
         run: |
           sed -i "s@for var in \$(awk .*;@for var in \$(printenv | cut -d'=' -f1);@" common/environment/setup/sourcepkg.sh
