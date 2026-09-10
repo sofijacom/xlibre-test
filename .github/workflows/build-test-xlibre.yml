@@ -170,25 +170,37 @@ jobs:
         env:
           PRIVKEY: ${{ secrets.PRIV_KEY }}
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
+          TARGET_ARCH: ${{ matrix.config.arch }}
         run: |
-          # Only run rindex if there are actually packages built (.xbps files exist)
-          if ls *.xbps 1> /dev/null 2>&1; then
-            sudo -Eu builder xbps-rindex --remove-obsoletes ${PWD}
+            echo "🧹 Preparing directory for $TARGET_ARCH..."
             
-            if [ -n "${PRIVKEY}" ]; then
-              printf "%s\n" "${PRIVKEY}" > key.pem
-              sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose ${PWD}
-              sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose ${PWD}/*.xbps
-              sudo -Eu builder rm -f key.pem
+            # 1. Жестко удаляем все .xbps, которые НЕ соответствуют целевой архитектуре
+            find . -maxdepth 1 -type f -name "*.xbps" ! -name "*$TARGET_ARCH*" -delete
+            
+            # Удаляем подписи старых версий, чтобы они не попали в релиз
+            rm -f *.sig2
+            
+            # 2. Только теперь проверяем, остались ли вообще пакеты
+            if compgen -G "*.xbps" > /dev/null; then
+              echo "📦 Found packages, running indexer..."
+              
+              sudo -Eu builder xbps-rindex --remove-obsoletes .
+              
+              if [ -n "${PRIVKEY}" ]; then
+                printf "%s\n" "${PRIVKEY}" > key.pem
+                sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose .
+                sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose *.xbps
+                rm -f key.pem
+              else
+                echo "No PRIV_KEY found. Skipping cryptographic signing."
+              fi
+              
+              # Очистка после подписания
+              sudo -Eu builder xbps-rindex --clean .
             else
-              echo "No PRIV_KEY found. Skipping cryptographic signing (normal for forks)."
+              echo "❌ No packages were built for $TARGET_ARCH after filtering. Skipping indexing."
             fi
             
-            sudo -Eu builder xbps-rindex --clean ${PWD}
-          else
-            echo "❌ No packages were built. Skipping indexing."
-          fi
-
       - name: checksum
         working-directory: void-packages/hostdir/binpkgs
         run: |
