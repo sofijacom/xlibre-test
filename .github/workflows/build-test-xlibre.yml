@@ -175,47 +175,49 @@ jobs:
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
           
-      - name: Install Gawk in masterdir
+      - name: Install Cross Toolchain (Unified)
         working-directory: void-packages
         env:
+          ARCH: ${{ matrix.config.arch }}
           HOST: ${{ matrix.config.host }}
+          LIBC: ${{ matrix.config.libc }}
         run: |
           MASTERDIR="$PWD/masterdir-$HOST"
           
           if [ ! -d "$MASTERDIR" ]; then 
             echo "❌ $MASTERDIR missing"; exit 1; fi
 
-          # Копируем конфиги репо хоста внутрь мастера для доступа к сети xbps
+          # Копируем конфиги хоста внутрь мастера
           sudo mkdir -p "$MASTERDIR/etc/xbps.d"
           if [ -d "/usr/share/xbps.d" ]; then
             sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/"
           fi
 
-          echo "🔩 Проверяем наличие gawk..."
+          # Добавляем nonfree где лежат бинари компиляторов
+          echo 'repository=https://repo-default.voidlinux.org/current/${LIBC}/nonfree' | \
+            sudo tee "$MASTERDIR/etc/xbps.d/20-nonfree.conf" > /dev/null
+
+          echo "🔄 Обновление индексов..."
+          sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
+
+          echo "🛠️ Установка GAWK (для legacy скриптов)..."
+          yes | sudo xbps-install -y -r "$MASTERDIR" gawk || { echo "GAWK fail"; exit 1; }
+
+          echo "🏗️ Установка кросс-тулчейна..."
+          # Формируем точное имя пакетов из переменных матрицы
+          GCC_PKG="cross-${ARCH}-linux-${LIBC}-gcc"
+          BINUTILS_PKG="cross-${ARCH}-linux-${LIBC}-binutils"
           
-          # Проверка наличия бинарника или симлинка 'awk'
-          if [ -x "$MASTERDIR/usr/bin/gawk" ] || [ -L "$MASTERDIR/usr/bin/awk" ]; then
-            echo "✅ Gawk уже на месте."
+          echo "Целевые пакеты: $GCC_PKG , $BINUTILS_PKG"
+          
+          # Ставим мета-пакет разработчика + наш конкретный кросс
+          if yes | sudo xbps-install -y -r "$MASTERDIR" base-devel make "$GCC_PKG" "$BINUTILS_PKG"; then
+             echo "✅ Тулчейн установлен."
           else
-            echo "📦 Устанавливаем GAWK..."
-            
-            # Обновляем индексы ВНУТРИ мастера перед установкой
-            sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
-            
-            # Ставим пакет напрямую в папку (-r), БЕЗ использования mount/chroot
-            if yes | sudo xbps-install -y -r "$MASTERDIR" gawk; then
-              echo "✅ Gawk установлен."
-              
-              # Контрольная проверка после установки
-              if [ ! -x "$MASTERDIR/usr/bin/gawk" ]; then
-                echo "❌ Критическая ошибка: бинарник исчез после установки!"
-                ls -la "$MASTERDIR"/usr/bin/ga*
-                exit 1
-              fi
-            else
-              echo "❌ Установка провалилась!"
-              exit 1
-            fi
+             echo "❌ Ошибка! Пробуем установить компоненты поштучно для лога:"
+             sudo xbps-install -y -r "$MASTERDIR" "$GCC_PKG" || true
+             sudo xbps-install -y -r "$MASTERDIR" "$BINUTILS_PKG" || true
+             exit 1
           fi
           
       - name: build pkgs
@@ -287,15 +289,7 @@ jobs:
       - name: short sha
         run: |
           printf "SHORT_SHA=$(git rev-parse --short ${SHA})" >> $GITHUB_ENV
-
-      - name: Save cache (Save step is automatic, but we ensure distfiles are saved too)
-        uses: actions/cache@v6
-        with:
-          path: |
-            void-packages/masterdir
-            void-packages/hostdir/distfiles
-          key: ${{ steps.cache-restore.outputs.key }}
-        
+          
       - name: release
         uses: softprops/action-gh-release@v3
         env:
