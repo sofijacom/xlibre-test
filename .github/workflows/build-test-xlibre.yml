@@ -111,36 +111,49 @@ jobs:
           # Remove all signature files to avoid conflicts
           rm --force hostdir/binpkgs/*.xbps.sig2
           
-      - name: Identify changes to build (Final version)
+      - name: Identify changes to build (Sane version)
         working-directory: void-packages
         id: identify
         run: |
           echo "🔍 Поиск измененных шаблонов..."
           
-          # Просто смотрим, какие файлы физически есть в srcpkgs у нас в checkout-е
-          if [ -z "$(ls -A srcpkgs/ 2>/dev/null)" ]; then
-            echo "❌ Папка srcpkgs пуста!"
+          # Определяем ветку main/master динамически
+          DEFAULT_BRANCH=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5 || echo "main")
+          git fetch origin "$DEFAULT_BRANCH" --depth=1 > /dev/null 2>&1
+          
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          
+          if [ "$COMMIT_COUNT" -eq 1 ]; then
+            echo "🆕 Первый коммит."
+            BASE_SHA="$(git hash-object --stdin </dev/null)"
+          else
+            BASE_SHA="HEAD~1"
+          fi
+
+          # Ищем ТОЛЬКО в вашей целевой директории 
+          # (замените 'XLibre' на реальное имя папки вашего пакета/группы пакетов)
+          TARGET_DIR="srcpkgs/XLibre" 
+          
+          if [ ! -d "$TARGET_DIR" ]; then
+            echo "❌ Директория $TARGET_DIR не найдена!"
             exit 1
           fi
 
-          # Проверяем, первый ли это запуск (нет файла со списком пакетов от кэша/сборщика)
-          # Или если список пустой — собираем всё принудительно для надежности
-          if [ ! -s /tmp/templates ]; then
-            echo "🆕 Это первый запуск или кэш пуст. Собираем ВСЕ пакеты."
-            
-            # Находим все директории внутри srcpkgs
-            find srcpkgs -mindepth 1 -maxdepth 1 -type d | cut -d'/' -f2 | sort > /tmp/templates
-            
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "📦 Будут собраны:"
-            cat /tmp/templates
+          CHANGED_FILES=$(git diff-tree --no-commit-id --name-only -r "${BASE_SHA}".."${SHA}" -- "$TARGET_DIR" || true)
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "✅ Изменений в $TARGET_DIR не найдено."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
-          else
-            echo "✅ Используем список изменений из кэша или предыдущих шагов."
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "📦 Будут собраны (измененные):"
-            cat /tmp/templates
           fi
+          
+          # Извлекаем имя пакета из пути (файл template -> имя папки)
+          CHANGED_PKGS=$(echo "$CHANGED_FILES" | cut -d/ -f2 | sort -u)
+          
+          printf '%s\n' "$CHANGED_PKGS" > /tmp/templates
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "📦 Будут собраны:"
+          cat /tmp/templates
           
       - name: Setup void-packages
         working-directory: void-packages
