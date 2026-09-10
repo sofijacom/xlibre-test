@@ -116,18 +116,37 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          latest_name=$(gh release view --json tagName --jq '.tagName' --repo $REPO_OWNER/$REPO_NAME || echo "Initial Commit")
-          latest_sha=$(git rev-list --max-count=1 ${latest_name} 2>/dev/null || git rev-list --max-parents=0 $REPO_OWNER/main)
-          echo "Latest Tag Name: ${latest_name}"
-          echo "Latest Tag SHA: ${latest_sha}"
-
-          # Меняем владельца ТОЛЬКО рабочих папок, сохраняя .git доступным
-          chown -R builder:builder srcpkgs hostdir etc
+          echo "🔍 Identifying changed packages..."
           
-          # This compares the last release against the new commit and ONLY builds what changed
-          git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
-          | cut -d/ -f 2 | uniq | sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
-
+          # Меняем владельца ТОЛЬКО рабочих папок ДО любых git операций
+          chown -R builder:builder srcpkgs hostdir etc .git || true
+          
+          # Ищем последний релиз. Если его нет -- берем самый первый коммит ветки main
+          latest_name=$(gh release view --json tagName --jq '.tagName' --repo $REPO_OWNER/$REPO_NAME 2>/dev/null || echo "")
+          
+          if [ -z "$latest_name" ]; then
+            echo "No releases found. Comparing against the initial commit of main."
+            latest_sha=$(git rev-list --max-parents=0 origin/main)
+          else
+            echo "Found release: $latest_name"
+            latest_sha=$(git rev-list --max-count=1 "$latest_name")
+          fi
+          
+          echo "Comparing range: $latest_sha ... $SHA"
+          
+          # Собираем список измененных ПАПОК в srcpkgs
+          CHANGED_PKGS=$(git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
+            | cut -d/ -f 2 | sort -u)
+            
+          if [ -z "$CHANGED_PKGS" ]; then
+            echo "✅ No template files changed in this commit."
+            exit 0
+          fi
+          
+          echo "$CHANGED_PKGS" > /tmp/templates
+          echo "Templates to build:"
+          cat /tmp/templates
+          
       - name: Setup void-packages
         working-directory: void-packages
         run: |
@@ -148,36 +167,40 @@ jobs:
           ARCH: ${{ matrix.config.arch }}
           HOST: ${{ matrix.config.host }}
         run: |
-          # Принудительно включаем bash для поддержки [[ ]]
           set +e
           if [ -z "$BASH_VERSION" ]; then
-            echo "Switching to bash..."
             exec /bin/bash -e "$0" "$@"
           fi
           
-          chown -R builder:builder srcpkgs hostdir etc
-          
           echo "🐧 Bootstrapping masterdir for $ARCH using host $HOST..."
           
-          # Создаем папку для мастера принудительно от root, 
-          # так как uchroot/sudo могут иметь ограничения на запись в workspace
-          mkdir -p masterdir-"$HOST"
-          chown -R builder:builder masterdir-"$HOST"
+          # 1. Создаем папку мастера РАНЬШЕ xbps-src. 
+          # Используем root (мы уже в нем) и полный путь $PWD.
+          MASTERDIR_PATH="$PWD/masterdir-$HOST"
           
-          # Экспортируем пути явно, чтобы xbps-src их гарантированно увидел
-          export XBPS_MASTERDIR="$PWD/masterdir-$HOST"
+          echo "📁 Creating directory: $MASTERDIR_PATH"
+          rm -rf "$MASTERDIR_PATH" || true
+          mkdir -p "$MASTERDIR_PATH"
+          
+          # 2. Даем права билдеру на УЖЕ созданную папку
+          chown -R builder:builder "$MASTERDIR_PATH"
+          
+          # 3. Экспортируем переменные окружения принудительно
+          export XBPS_MASTERDIR="$MASTERDIR_PATH"
           export XBPS_DISTDIR="$PWD/hostdir/distfiles"
           export XBPS_REPOSITORY="$PWD/hostdir/binpkgs"
           
-          # Включаем эмуляцию перед первым вызовом xbps-src
+          # Включаем эмуляцию binfmt_misc (критично для aarch64 на x86_64)
           sudo update-binfmts --enable > /dev/null 2>&1 || true
           
+          # 4. Запускаем бутстрап. Теперь он НЕ будет пытаться создавать папку,
+          # он найдет её существующей и начнет распаковку base-system внутрь.
           if [[ "$HOST" == "$ARCH" ]]; then
             yes | sudo -Eu builder ./xbps-src -A "$HOST" binary-bootstrap
           else
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
-            
+           
       - name: build pkgs
         working-directory: void-packages
         env:
