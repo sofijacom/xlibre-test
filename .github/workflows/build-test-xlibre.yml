@@ -178,7 +178,7 @@ jobs:
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
 
-      - name: Install toolchain dependencies (gawk + devel)
+      - name: Install Toolchain (Final)
         working-directory: void-packages
         env:
           ARCH: ${{ matrix.config.arch }}
@@ -199,42 +199,24 @@ jobs:
           echo "🔩 Устанавливаем GAWK..."
           yes | sudo xbps-install -y -r "$MASTERDIR" gawk || { echo "GAWK fail"; exit 1; }
 
-          echo "🛠️ Устанавливаем C/C++ Toolchain..."
+          echo "🛠️ Формируем тулчейн..."
           
-          # Формируем точный список пакетов для целевой архитектуры
-          PKGS="gcc make pkg-config autoconf automake libtool"
-          
-          # Если сборка musl, добавляем заголовки musl
-          if [ "$LIBC" = "musl" ]; then
-             PKGS="$PKGS musl-devel"
-          else
-             # Если glibc, нам нужны заголовки libc
-             PKGS="$PKGS glibc-devel"
-          fi
+          # Собираем точное имя кросс-компилятора из ваших данных
+          GCC_PKG="cross-${ARCH}-linux-${LIBC}-gcc"
+          BINUTILS_PKG="cross-${ARCH}-linux-${LIBC}-binutils"
 
-          # Добавляем префикс архитектуры только если мы НЕ делаем нативную сборку
-          if [[ "$ARCH" != "$HOST" ]]; then
-            PREFIX="${ARCH}-linux-${LIBC}-"
-            FINAL_PKGS=""
-            for p in $PKGS; do
-              FINAL_PKGS="$FINAL_PKGS $PREFIX$p"
-            done
-          else
-            # Нативная сборка (arch == host), ставим обычные пакеты без префикса
-            FINAL_PKGS="$PKGS base-devel"
-          fi
-
-          echo "📦 Installing: $FINAL_PKGS"
+          echo "Target package: $GCC_PKG"
           
-          # Обновляем индексы ВНУТРИ мастера перед установкой
+          # Обновляем индексы пакетов ВНУТРИ песочницы
           sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
           
-          # Ставим сформированный список
-          if yes | sudo xbps-install -y -r "$MASTERDIR" $FINAL_PKGS; then
-            echo "✅ Тулчейн установлен."
+          # Ставим всё одним махом
+          if yes | sudo xbps-install -y -r "$MASTERDIR" gawk base-devel make "$GCC_PKG" "$BINUTILS_PKG" pkg-config autoconf automake libtool; then
+            echo "✅ Тулчейн ($GCC_PKG) установлен."
           else
-            echo "❌ Ошибка установки одного из компонентов:"
-            sudo xbps-install -y -r "$MASTERDIR" $FINAL_PKGS # Запускаем без подавления вывода ошибок
+            echo "❌ Ошибка установки!"
+            # Пытаемся поставить по одному, чтобы увидеть виновника
+            sudo xbps-install -y -r "$MASTERDIR" "$GCC_PKG"
             exit 1
           fi
           
