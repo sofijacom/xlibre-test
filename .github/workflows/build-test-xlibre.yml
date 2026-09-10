@@ -1,4 +1,4 @@
-name: 🏗️ Xlibre test
+name: Test XLibre VOID linux
 
 env:
   TAG: workflow-${{ github.run_number }}
@@ -18,19 +18,22 @@ concurrency:
 
 jobs:
   build:
-    name: Build📦 ${{ matrix.config.arch }}
+    name: Build 📦 ${{ matrix.config.arch }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write   
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         config:
           #- { arch: x86_64,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 1 }
+          #- { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
           - { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
+          #- { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
           #- { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
+          #- { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
           - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
-          
+  
     container:
       image: ghcr.io/void-linux/void-glibc-full
       options: --platform linux/amd64 --privileged
@@ -41,43 +44,27 @@ jobs:
         SHA: '${{ env.SHA }}'
         ARCH: '${{ matrix.config.arch }}'
         HOST: '${{ matrix.config.host }}'
-        # XBPS_TARGET_ARCH: '${{ matrix.config.arch }}'
+        XBPS_TARGET_ARCH: '${{ matrix.config.arch }}'
         REPO_OWNER: "${{ github.repository_owner }}"
         REPO_NAME: "${{ github.event.repository.name }}"
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:
-      #- name: Cache masterdir
-      #  uses: actions/cache@v5
-      #  with:
-      #    path: void-packages/masterdir-${{ matrix.config.arch }}
-      #    key: masterdir-${{ matrix.config.arch }}-${{ hashFiles('void-packages/common/xbps-src/shlibs') }}
-      #    restore-keys: |
-      #      masterdir-${{ matrix.config.arch }}-
-         
-      - name: 🧰 Prep container
+      - name: Prepare container
         run: |
           mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
           env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
           env -u XBPS_TARGET_ARCH xbps-install -yu
-          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq zip unzip git github-cli xtools coreutils
+          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq git xz zip unzip github-cli xtools
           useradd -G xbuilder -M builder -s $(which bash)
-          
-      - name: 🔎 Checkout void-package
+            
+      - name: Checkout xlibre
         uses: actions/checkout@v6
         with:
           repository: void-linux/void-packages
           ref: master
-          path: void-packages
-          
-      - name: 🐛 Fix sourcepkg.sh — replace awk with shell parameter expansion
-        working-directory: void-packages
-        run: |
-          sed -i 's@for var in $(awk .*;@for var in $(printenv | cut -d'"'"'='"'"' -f1);@' common/environment/setup/sourcepkg.sh
-      #    sed -i 's@_soname=\$(\${OBJDUMP} -p "\$f" | awk '\''/SONAME/{print \$2}'\'')@_soname=\$(\${OBJDUMP} -p "\$f" | grep '\''SONAME'\'' | cut -d '\'' '\'' -f2)@' common/hooks/post-install/98-shlib-provides.sh
-   
-      - name: 🧩 Merge this repository into void-linux/void-packages
-        working-directory: void-packages
+
+      - name: Merge this repository into void-linux/void-packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -92,14 +79,18 @@ jobs:
           
           # Clean up mismatched architectures so repodata generates correctly
           if [ "$ARCH" = "x86_64" ]; then
-            rm --force hostdir/binpkgs/*x86_64-musl*
+            rm --force hostdir/binpkgs/*x86_64-musl*.xbps
           elif [ "$ARCH" = "x86_64-musl" ]; then
-            rm --force hostdir/binpkgs/*x86_64.xbps
+            rm --force hostdir/binpkgs/*x86_64*.xbps
+          elif [ "$ARCH" = "aarch64" ]; then
+            rm --force hostdir/binpkgs/*aarch64-musl*.xbps
+          elif [ "$ARCH" = "aarch64-musl" ]; then
+            rm --force hostdir/binpkgs/*aarch64*.xbps
           fi
+          # Remove all signature files to avoid conflicts
           rm --force hostdir/binpkgs/*.xbps.sig2
 
-      - name: 📋 Identify changes to build
-        working-directory: void-packages
+      - name: Identify changes to build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -109,116 +100,59 @@ jobs:
           echo "Latest Tag SHA: ${latest_sha}"
 
           chown -R builder:builder .
+
+          # This compares the last release against the new commit and ONLY builds what changed
           git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
           | cut -d/ -f 2 | uniq | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
 
-      - name: 🛠️ Setup void-packages
-        working-directory: void-packages
+      - name: Setup void-packages
         run: |
           chown -R builder:builder .
-          mkdir -p etc
           echo XBPS_BUILD_ENVIRONMENT=void-packages-ci >> etc/conf
           echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
           echo XBPS_CHROOT_CMD=uchroot >> etc/conf
-          echo 'XBPS_REPOSITORY=$PWD/hostdir/binpkgs' >> etc/conf
-          echo 'XBPS_DISTDIR=$PWD/hostdir/distfiles' >> etc/conf
-          echo 'XBPS_MASTERDIR_PKGS="$PWD/hostdir/binpkgs"' >> etc/conf
-
-      - name: 🔧 Prepare masterdir
-        working-directory: void-packages
-        run: |
-          chown -R builder:builder .
-          yes | sudo -Eu builder ./xbps-src -m masterdir-${{ matrix.config.host }} -A ${{ matrix.config.host }} binary-bootstrap
-
-      - name: ✅ Install gawk in chroot
-        working-directory: void-packages
-        run: |
-          MASTERDIR="masterdir-${{ matrix.config.arch }}"
-    
-          if [ ! -d "$MASTERDIR" ]; then
-          echo "❌ Error: $MASTERDIR does not exist"
-          exit 1
-          fi
-
-          # 🔧 Create a folder in masterdir
-          sudo mkdir -p "$MASTERDIR/etc/xbps.d"
-
-          # 🔍 Copy the configs from /usr/share/xbps.d/
-          if [ -d "/usr/share/xbps.d" ]; then
-          echo "📦 Copy /usr/share/xbps.d/*-repository-*.conf"
-          sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/"
-          else
-          echo "❌ Not found /usr/share/xbps.d/"
-          exit 1
-          fi
-
-          # 🧰 We are mounting /proc, /dev, /sys
-          echo "🔧 We are mounting /proc, /dev, /sys в $MASTERDIR"
-          sudo mount --bind /proc "$MASTERDIR/proc" || true
-          sudo mount --bind /dev "$MASTERDIR/dev" || true
-          sudo mount --bind /sys "$MASTERDIR/sys" || true
-
-          # 🛠️ Installing gawk
-          echo "🔧 Installing gawk in $MASTERDIR..."
-          yes | sudo chroot "$MASTERDIR" xbps-install -y gawk || {
-          echo "❌ gawk installation failed"
-          sudo umount "$MASTERDIR/proc" || true
-          sudo umount "$MASTERDIR/dev"  || true
-          sudo umount "$MASTERDIR/sys"  || true
-          exit 1
-          }
-
-          # ✅ Checking the presence of the file - NOT through chroot
-          if [ -f "$MASTERDIR/usr/bin/awk" ] || [ -f "$MASTERDIR/usr/bin/gawk" ]; then
-          echo "✅ awk installed"
-          else
-          echo "❌ awk not found in $MASTERDIR/usr/bin/"
-          sudo umount "$MASTERDIR/proc" || true
-          sudo umount "$MASTERDIR/dev"  || true
-          sudo umount "$MASTERDIR/sys"  || true
-          exit 1
-          fi
-
-          # 🧹 Let's dismantle it
-          echo "🧹 Unmount /proc, /dev, /sys"
-          sudo umount "$MASTERDIR/proc" || true
-          sudo umount "$MASTERDIR/dev"  || true
-          sudo umount "$MASTERDIR/sys"  || true
-        
-      # -------------------- Packages to build --------------------
-
-      - name: 🗑️ Reset package cache & sync repos
-        working-directory: void-packages
-        run: |
-          sudo -Eu builder ./xbps-src clean || true
-          
-      - name: 📦 build pkgs
-        working-directory: void-packages
+ 
+      - name: build pkgs     
         run: |
           chown -R builder:builder .
           pkgs=$(cat /tmp/templates)
           for pkg in ${pkgs}; do
-            echo "🏗️ Building $pkg for $ARCH..."
-            sudo -Eu builder ./xbps-src pkg -j$(nproc) -m masterdir-${{ matrix.config.host }} -A ${{ matrix.config.host }} -a ${{ matrix.config.arch }} "${pkg}" || printf "Failed building ${pkg}!\n"
+          echo "🏗️ Building $pkg for $ARCH..."
+          if [[ "${{ matrix.config.host }}" == "${{ matrix.config.arch }}" ]]; then
+          yes | sudo -Eu builder ./xbps-src -A ${{ matrix.config.host }} binary-bootstrap
+          sudo -Eu builder ./xbps-src pkg -j$(nproc) -A ${{ matrix.config.host }} "${pkg}" || printf "Failed building ${pkg}!\n"
+          else
+          yes | sudo -Eu builder ./xbps-src -a ${{ matrix.config.arch }} -A ${{ matrix.config.host }} binary-bootstrap
+          sudo -Eu builder ./xbps-src pkg -j$(nproc) -a ${{ matrix.config.arch }} -A ${{ matrix.config.host }} "${pkg}" || printf "❌ Failed building: ${pkg}!\n"
+          fi
           done
-
-      # -----------------------------------------------------------
-
-      - name: 🧾 Clean & sign
-        working-directory: void-packages/hostdir/binpkgs
+          
+      - name: Clean & sign
+        working-directory: ./hostdir/binpkgs
         env:
           PRIVKEY: ${{ secrets.PRIV_KEY }}
           XBPS_PASSPHRASE: ${{ secrets.SIGN_PASS }}
         run: |
-          sudo -Eu builder xbps-rindex --remove-obsoletes ${PWD}
-          printf "%s\n" "${PRIVKEY}" > key.pem
-          sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose ${PWD}
-          sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose ${PWD}/*.xbps
-          sudo -Eu builder rm -f key.pem
-          sudo -Eu builder xbps-rindex --clean ${PWD}
+          # Only run rindex if there are actually packages built (.xbps files exist)
+          if ls *.xbps 1> /dev/null 2>&1; then
+            sudo -Eu builder xbps-rindex --remove-obsoletes ${PWD}
+            
+            if [ -n "${PRIVKEY}" ]; then
+              printf "%s\n" "${PRIVKEY}" > key.pem
+              sudo -Eu builder xbps-rindex --privkey key.pem --sign --signedby "${REPO_NAME}-github-actions" --verbose ${PWD}
+              sudo -Eu builder xbps-rindex --privkey key.pem --sign-pkg --verbose ${PWD}/*.xbps
+              sudo -Eu builder rm -f key.pem
+            else
+              echo "No PRIV_KEY found. Skipping cryptographic signing (normal for forks)."
+            fi
+            
+            sudo -Eu builder xbps-rindex --clean ${PWD}
+          else
+            echo "❌ No packages were built. Skipping indexing."
+          fi
 
-      - name: 🔢 checksum
-        working-directory: void-packages/hostdir/binpkgs
+      - name: checksum
+        working-directory: ./hostdir/binpkgs
         run: |
           rm -rf *.sha256sum *.sha512sum
           
@@ -230,20 +164,20 @@ jobs:
               sha512sum "${file}" | cut -d ' ' -f 1 > "${file}.sha512sum"
             done
           else
-            echo "❌ No packages found to checksum."
+            echo "No packages found to checksum."
           fi
 
-      - name: 📤 Upload Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.config.arch }}-repodata
-          path: void-packages/hostdir/binpkgs
+          path: ./hostdir/binpkgs
 
-      - name: 🏷️ short sha
+      - name: short sha
         run: |
           printf "SHORT_SHA=$(git rev-parse --short ${SHA})" >> $GITHUB_ENV
 
-      - name: 🚀 release
+      - name: release
         uses: softprops/action-gh-release@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -251,6 +185,6 @@ jobs:
           name: ${{ env.SHORT_SHA }}
           tag_name: ${{ env.TAG }}
           files: |
-            void-packages/hostdir/binpkgs/*.xbps
-            void-packages/hostdir/binpkgs/*.sig2
-            void-packages/hostdir/binpkgs/*repodata
+            ./hostdir/binpkgs/*.xbps
+            ./hostdir/binpkgs/*.sig2
+            ./hostdir/binpkgs/*repodata
