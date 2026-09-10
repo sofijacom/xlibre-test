@@ -26,7 +26,8 @@ case "$XBPS_TARGET_MACHINE" in
 esac
 
 pre_configure() {
-	autoreconf -fi
+#	autoreconf -fi
+  NOCONFIGURE=1 ./autogen.sh
 }
 
 post_install() {
