@@ -180,20 +180,17 @@ jobs:
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
 
-      - name: ✅ Install gawk in chroot (Fix for awk bug)
-        working-directory: void-packages
-        env:
-          ARCH: ${{ matrix.config.arch }}
-          HOST: ${{ matrix.config.host }}
-        run: |
-          # Используем ту же переменную, что и в шаге bootstrap
-          MASTERDIR="${XBPS_MASTERDIR}"
+          echo "MASTERDIR_PATH=$PWD/masterdir-$HOST" >> "$GITHUB_OUTPUT"
           
+      - name: ✅ Install gawk in chroot
+        needs: setup-emulation-and-bootstrap-masterdir # Указываем зависимость!
+        env:
+          MASTERDIR: ${{ needs.setup-emulation-and-bootstrap-masterdir.outputs.MASTERDIR_PATH }}
+        run: |
           if [ ! -d "$MASTERDIR" ]; then 
-            echo "❌ Error: $MASTERDIR does not exist"; 
-            exit 1; 
-          fi
-
+            echo "❌ Error: $MASTERDIR does not exist"; exit 1; fi
+          # ... остальной код без изменений ...
+          
           echo "🔧 Mounting /proc, /dev, /sys into $MASTERDIR..."
           sudo mkdir -p "$MASTERDIR/etc/xbps.d"
           
