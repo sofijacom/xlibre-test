@@ -178,11 +178,12 @@ jobs:
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
 
-      - name: Install toolchain dependencies (gawk + cross-compiler)
+      - name: Install toolchain dependencies (gawk + devel)
         working-directory: void-packages
         env:
           ARCH: ${{ matrix.config.arch }}
           HOST: ${{ matrix.config.host }}
+          LIBC: ${{ matrix.config.libc }}
         run: |
           MASTERDIR="$PWD/masterdir-$HOST"
           
@@ -198,21 +199,44 @@ jobs:
           echo "🔩 Устанавливаем GAWK..."
           yes | sudo xbps-install -y -r "$MASTERDIR" gawk || { echo "GAWK fail"; exit 1; }
 
-          echo "🛠️ Устанавливаем CROSS компилятор..."
-          # Для glibc сборок нужен musl/glibc тулчейн
-          TARGET_TRIPLET="${ARCH}-linux-${LIBC:-gnu}"
+          echo "🛠️ Устанавливаем C/C++ Toolchain..."
           
-          # Пытаемся установить нужный кросс-компилятор
-          if ! yes | sudo xbps-install -y -r "$MASTERDIR" "cross-$TARGET_TRIPLET"; then
-             echo "⚠️ Кросс-компилятор не найден в текущем кэше."
-             echo "🔄 Обновляем индексы внутри мастера и пробуем снова..."
-             
-             # Обновляем базу данных пакетов ВНУТРИ папки мастера через --chrootdir
-             sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
-             yes | sudo xbps-install -y -r "$MASTERDIR" "cross-$TARGET_TRIPLET" || { echo "Cross install failed!"; exit 1; }
+          # Формируем точный список пакетов для целевой архитектуры
+          PKGS="gcc make pkg-config autoconf automake libtool"
+          
+          # Если сборка musl, добавляем заголовки musl
+          if [ "$LIBC" = "musl" ]; then
+             PKGS="$PKGS musl-devel"
+          else
+             # Если glibc, нам нужны заголовки libc
+             PKGS="$PKGS glibc-devel"
           fi
 
-          echo "✅ Тулчейн установлен."
+          # Добавляем префикс архитектуры только если мы НЕ делаем нативную сборку
+          if [[ "$ARCH" != "$HOST" ]]; then
+            PREFIX="${ARCH}-linux-${LIBC}-"
+            FINAL_PKGS=""
+            for p in $PKGS; do
+              FINAL_PKGS="$FINAL_PKGS $PREFIX$p"
+            done
+          else
+            # Нативная сборка (arch == host), ставим обычные пакеты без префикса
+            FINAL_PKGS="$PKGS base-devel"
+          fi
+
+          echo "📦 Installing: $FINAL_PKGS"
+          
+          # Обновляем индексы ВНУТРИ мастера перед установкой
+          sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
+          
+          # Ставим сформированный список
+          if yes | sudo xbps-install -y -r "$MASTERDIR" $FINAL_PKGS; then
+            echo "✅ Тулчейн установлен."
+          else
+            echo "❌ Ошибка установки одного из компонентов:"
+            sudo xbps-install -y -r "$MASTERDIR" $FINAL_PKGS # Запускаем без подавления вывода ошибок
+            exit 1
+          fi
           
       - name: build pkgs
         working-directory: void-packages
@@ -285,7 +309,7 @@ jobs:
           printf "SHORT_SHA=$(git rev-parse --short ${SHA})" >> $GITHUB_ENV
 
       - name: Save cache (Save step is automatic, but we ensure distfiles are saved too)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             void-packages/masterdir
