@@ -1,4 +1,4 @@
-name: 🏗️ Build Void Linux Packages
+name: 🏗️ Xlibre test
 
 env:
   TAG: workflow-${{ github.run_number }}
