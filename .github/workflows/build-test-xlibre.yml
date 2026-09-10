@@ -111,56 +111,27 @@ jobs:
           # Remove all signature files to avoid conflicts
           rm --force hostdir/binpkgs/*.xbps.sig2
           
-      - name: Identify changes to build (Sane version)
+      - name: Identify changes to build
         working-directory: void-packages
-        id: identify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "🔍 Поиск измененных шаблонов..."
-          
-          # Определяем ветку main/master динамически
-          DEFAULT_BRANCH=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5 || echo "main")
-          git fetch origin "$DEFAULT_BRANCH" --depth=1 > /dev/null 2>&1
-          
-          COMMIT_COUNT=$(git rev-list --count HEAD)
-          
-          if [ "$COMMIT_COUNT" -eq 1 ]; then
-            echo "🆕 Первый коммит."
-            BASE_SHA="$(git hash-object --stdin </dev/null)"
-          else
-            BASE_SHA="HEAD~1"
-          fi
+          latest_name=$(gh release view --json tagName --jq '.tagName' --repo $REPO_OWNER/$REPO_NAME || echo "Initial Commit")
+          latest_sha=$(git rev-list --max-count=1 ${latest_name} 2>/dev/null || git rev-list --max-parents=0 $REPO_OWNER/main)
+          echo "Latest Tag Name: ${latest_name}"
+          echo "Latest Tag SHA: ${latest_sha}"
 
-          # Ищем ТОЛЬКО в вашей целевой директории 
-          # (замените 'XLibre' на реальное имя папки вашего пакета/группы пакетов)
-          TARGET_DIR="srcpkgs/XLibre" 
-          
-          if [ ! -d "$TARGET_DIR" ]; then
-            echo "❌ Директория $TARGET_DIR не найдена!"
-            exit 1
-          fi
+          chown -R builder:builder .
 
-          CHANGED_FILES=$(git diff-tree --no-commit-id --name-only -r "${BASE_SHA}".."${SHA}" -- "$TARGET_DIR" || true)
-          
-          if [ -z "$CHANGED_FILES" ]; then
-            echo "✅ Изменений в $TARGET_DIR не найдено."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          
-          # Извлекаем имя пакета из пути (файл template -> имя папки)
-          CHANGED_PKGS=$(echo "$CHANGED_FILES" | cut -d/ -f2 | sort -u)
-          
-          printf '%s\n' "$CHANGED_PKGS" > /tmp/templates
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "📦 Будут собраны:"
-          cat /tmp/templates
+          # This compares the last release against the new commit and ONLY builds what changed
+          git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
+          | cut -d/ -f 2 | uniq | xargs sudo -Eu builder ./xbps-src sort-dependencies | tee /tmp/templates
           
       - name: Setup void-packages
         working-directory: void-packages
         run: |
           chown -R builder:builder srcpkgs hostdir etc
           mkdir -p etc
-          # Фиксируем оболочку ПЕРВЫМ делом
           echo XBPS_SHELL=/bin/bash > etc/conf
           echo XBPS_BUILD_ENVIRONMENT=void-packages-ci >> etc/conf
           echo XBPS_ALLOW_RESTRICTED=yes >> etc/conf
