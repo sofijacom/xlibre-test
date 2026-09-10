@@ -1,4 +1,4 @@
-name: Test XLibre VOID linux
+name: Test XLibre
 
 env:
   TAG: workflow-${{ github.run_number }}
