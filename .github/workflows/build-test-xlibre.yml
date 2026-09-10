@@ -1,4 +1,4 @@
-name: 🏗️ Build XLibre test (xbps)
+name: 🏗️ Build XLibre Packages (xbps)
 
 on:
   workflow_dispatch:
@@ -39,14 +39,39 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:
-      - name: 🧰 Prep container
+      # --- Подготовка контейнера ---
+      - name: 🧰 Prep container and create user
         run: |
-          mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
-          env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
-          env -u XBPS_TARGET_ARCH xbps-install -yu
-          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq zip unzip git gh xtools coreutils
-          useradd -G xbuilder -M builder -s $(which bash)
+          set -e
+          
+          echo "🔌 Setting up XBPS repositories..."
+          mkdir -p /etc/xbps.d
+          cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/ || true
 
+          echo "⚡ Updating core package manager..."
+          env -u XBPS_TARGET_ARCH xbps-install -Syu xbps || exit 1
+          
+          echo "🔄 Full system upgrade inside runner..."
+          env -u XBPS_TARGET_ARCH xbps-install -yu || exit 1
+
+          echo "📦 Installing build tools and gh cli..."
+          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq zip unzip git xtools gh coreutils shadow || exit 1
+          
+          # Безопасное создание группы и пользователя
+          if ! getent group xbuilder > /dev/null 2>&1; then
+            echo "👥 Creating group 'xbuilder'..."
+            groupadd --gid 1001 xbuilder
+          fi
+
+          if ! id builder > /dev/null 2>&1; then
+            echo "👤 Creating user 'builder'..."
+            useradd --create-home --shell $(which bash) --groups xbuilder builder
+            chown -R builder:builder /home/builder
+          else
+            echo "ℹ️ User 'builder' already exists."
+          fi
+
+      # --- Клонирование void-packages и слияние шаблонов ---
       - name: 🔎 Checkout void-packages
         uses: actions/checkout@v6
         with:
@@ -54,7 +79,7 @@ jobs:
           ref: master
           path: void-packages
 
-      - name: 🐛 Fix sourcepkg.sh
+      - name: 🐛 Fix sourcepkg.sh (musl compatibility)
         working-directory: void-packages
         run: sed -i "s@for var in \$(awk .*;@for var in \$(printenv | cut -d'=' -f1);@" common/environment/setup/sourcepkg.sh
 
@@ -70,15 +95,15 @@ jobs:
           git merge --no-commit --strategy-option=theirs --allow-unrelated-histories -Xignore-space-change custom/main
           mkdir -p hostdir/binpkgs
           
-          # Скачиваем предыдущие бинари, чтобы они не потерялись при очистке зависимостей
+          # Сохраняем старые пакеты от предыдущих запусков
           gh release download --pattern "*${ARCH}*" --dir hostdir/binpkgs --repo $REPO_OWNER/$REPO_NAME || true
-
-          # Чистим конфликтующие архивы других C-библиотек
+          
+          # Чистим конфликтующие архитектуры из артефактов
           rm -f hostdir/binpkgs/*$ARCH-musl*.xbps 2>/dev/null || true
           rm -f hostdir/binpkgs/*$ARCH-glibc*.xbps 2>/dev/null || true
           rm -f hostdir/binpkgs/*.sig2 2>/dev/null || true
 
-      # --- Определяем список пакетов ---
+      # --- Определение пакетов на сборку ---
       - name: 📋 Identify changes to build
         working-directory: void-packages
         env:
@@ -95,7 +120,6 @@ jobs:
           echo "🕵️ Comparing against: $latest_tag ($latest_sha)"
           
           chown -R builder:builder .
-          # Ищем изменения ТОЛЬКО в папке xlibre
           git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/xlibre/**' \
           | cut -d/ -f 2 | uniq | sort -u | tee /tmp/templates
 
@@ -103,7 +127,7 @@ jobs:
         working-directory: void-packages
         run: |
           pkgs=$(cat /tmp/templates)
-          if [ -z "$pkgs" ]; then echo "✅ No template changes detected. Exiting."; exit 0; fi
+          if [ -z "$pkgs" ]; then echo "✅ No template changes detected."; exit 0; fi
           
           echo "📋 Packages to rebuild:"
           cat /tmp/templates
@@ -114,6 +138,7 @@ jobs:
             find hostdir/binpkgs -name "${pkg}-*.sig2" -exec rm -fv {} + || true
           done
 
+      # --- Настройка окружения сборки ---
       - name: 🛠️ Setup void-packages conf
         working-directory: void-packages
         run: |
@@ -125,7 +150,7 @@ jobs:
           echo 'XBPS_REPOSITORY=$PWD/hostdir/binpkgs' >> etc/conf
           echo 'XBPS_DISTDIR=$PWD/hostdir/distfiles' >> etc/conf
 
-      - name: 🔧 Prepare masterdir
+      - name: 🔧 Prepare masterdir (bootstrap)
         working-directory: void-packages
         env:
           ARCH: ${{ matrix.config.arch }}
@@ -144,6 +169,11 @@ jobs:
           chroot "$MASTER" xbps-install -y base-devel meson ninja python3 gettext-devel libxcvt-devel libdrm-devel eudev-libudev-devel
           umount "$MASTER/proc" "$MASTER/dev" "$MASTER/sys"
 
+      - name: 🗑️ Reset package cache & sync repos
+        working-directory: void-packages
+        run: sudo -Eu builder ./xbps-src clean || true
+
+      # --- Сборка пакета xlibre ---
       - name: 📦 Build pkgs
         working-directory: void-packages
         env:
@@ -162,6 +192,7 @@ jobs:
         run: |
           ls -1 *.xbps 2>/dev/null || echo "No new binaries."
 
+      # --- Индексация и подпись репозитория ---
       - name: 📦 Sign & Index repo
         working-directory: void-packages/hostdir/binpkgs
         env:
@@ -202,6 +233,7 @@ jobs:
           path: void-packages/hostdir/binpkgs
           retention-days: 7
 
+      # --- Загрузка в GitHub Releases ---
       - name: 📤 Create Release & Upload Assets
         if: success() && github.ref == 'refs/heads/main'
         working-directory: void-packages/hostdir/binpkgs
@@ -218,7 +250,6 @@ jobs:
           AUTH="Authorization: Bearer $GH_TOKEN"
           ACCEPT="Accept: application/vnd.github+json"
 
-          # Удаляем старый релиз по тегу
           EXISTING=$(curl -s -H "$AUTH" -H "$ACCEPT" "$API/releases/tags/$TAG" || echo "{}")
           ID=$(echo "$EXISTING" | jq -r '.id')
           if [ "$ID" != "null" ]; then
@@ -226,12 +257,10 @@ jobs:
             curl -s -X DELETE -H "$AUTH" -H "$ACCEPT" "$API/releases/$ID" > /dev/null
           fi
 
-          # Создаем новый
           BODY=$(jq -nc --arg t "$TAG" --arg n "$NAME" '{tag_name:$t, name:$n, draft:false, prerelease:false}')
           NEW=$(curl -s -X POST -H "$AUTH" -H "$ACCEPT" -H "Content-Type: application/json" -d "$BODY" "$API/releases")
           REL_ID=$(echo "$NEW" | jq -r '.id')
 
-          # Загрузка файлов
           for file in *.xbps *.sig2 *-repodata; do
             if [ -f "$file" ]; then
               echo "📤 Uploading $file..."
