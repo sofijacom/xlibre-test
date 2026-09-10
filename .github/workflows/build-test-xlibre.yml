@@ -201,9 +201,9 @@ jobs:
 
           echo "🛠️ Формируем тулчейн..."
           
-          # Собираем точное имя кросс-компилятора из ваших данных
-          GCC_PKG="cross-${ARCH}-linux-${LIBC}-gcc"
-          BINUTILS_PKG="cross-${ARCH}-linux-${LIBC}-binutils"
+          # --- ИСПРАВЛЕНО ТУТ: вместо 'glibc' пишем 'gnu' ---
+          GCC_PKG="cross-${ARCH}-linux-gnu-gcc"
+          BINUTILS_PKG="cross-${ARCH}-linux-gnu-binutils"
 
           echo "Target package: $GCC_PKG"
           
@@ -211,11 +211,10 @@ jobs:
           sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
           
           # Ставим всё одним махом
-          if yes | sudo xbps-install -y -r "$MASTERDIR" gawk base-devel make "$GCC_PKG" "$BINUTILS_PKG" pkg-config autoconf automake libtool; then
+          if yes | sudo xbps-install -y -r "$MASTERDIR" base-devel make "$GCC_PKG" "$BINUTILS_PKG" pkg-config autoconf automake libtool; then
             echo "✅ Тулчейн ($GCC_PKG) установлен."
           else
             echo "❌ Ошибка установки!"
-            # Пытаемся поставить по одному, чтобы увидеть виновника
             sudo xbps-install -y -r "$MASTERDIR" "$GCC_PKG"
             exit 1
           fi
