@@ -111,25 +111,24 @@ jobs:
           # Remove all signature files to avoid conflicts
           rm --force hostdir/binpkgs/*.xbps.sig2
 
-      - name: Identify changed packages (Optimized)
+      - name: Identify changed packages (Optimized & Fixed)
         working-directory: void-packages
         id: identify
         run: |
           echo "🔍 Поиск измененных шаблонов..."
           
-          # Проверяем наличие релиза через быстрый вызов API (таймаут 5 секунд)
-          LATEST_TAG=$(gh api repos/$REPO_OWNER/$REPO_NAME/releases/latest --jq '.tag_name' 2>/dev/null || echo "")
+          # Получаем общее количество коммитов в локальной истории
+          COMMIT_COUNT=$(git rev-list --count HEAD)
           
-          if [ -z "$LATEST_TAG" ]; then
-            echo "Релизов нет. Сравниваем с HEAD~1 (предыдущий коммит)."
-            BASE_SHA="HEAD~1"
+          if [ "$COMMIT_COUNT" -eq 1 ]; then
+            echo "🆕 Это первый коммит в репозитории. Собираем всё."
+            BASE_SHA="$(git hash-object --stdin </dev/null)" # Нулевой хеш (40 нулей)
           else
-            echo "Найден релиз: $LATEST_TAG"
-            BASE_SHA="$LATEST_TAG"
+            echo "📜 История найдена ($COMMIT_COUNT коммитов). Сравниваем с предыдущим состоянием."
+            BASE_SHA="HEAD~1"
           fi
-          
-          # Выполняем diff-tree локально. 
-          # --no-commit-id убирает лишнюю информацию, --name-only дает только пути.
+
+          # Выполняем сравнение. Теперь база всегда валидна.
           CHANGED_FILES=$(git diff-tree --no-commit-id --name-only -r "${BASE_SHA}".."${SHA}" -- srcpkgs/ || true)
           
           if [ -z "$CHANGED_FILES" ]; then
@@ -142,12 +141,11 @@ jobs:
           CHANGED_PKGS=$(echo "$CHANGED_FILES" | cut -d/ -f2 | sort -u)
           
           printf '%s\n' "$CHANGED_PKGS" > /tmp/templates
-          echo "Список пакетов:"
+          echo "Список пакетов к сборке:"
           cat /tmp/templates
           
-          # Передаем данные дальше
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          
+           
       - name: Setup void-packages
         working-directory: void-packages
         run: |
