@@ -1,4 +1,4 @@
-name: 🏗️ Build XLibre Packages (xbps)
+name: 🏗️ Build Packages test (xbps)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - srcpkgs/xlibre/**
+      - srcpkgs/**
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,7 +17,7 @@ jobs:
     name: Build 📦 ${{ matrix.config.arch }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Обязательно для загрузки в Releases
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -35,43 +35,28 @@ jobs:
         XBPS_TARGET_ARCH: ${{ matrix.config.arch }}
         REPO_OWNER: ${{ github.repository_owner }}
         REPO_NAME: ${{ github.event.repository.name }}
-
     if: ${{ github.ref == 'refs/heads/main' }}
 
     steps:
       # --- Подготовка контейнера ---
-      - name: 🧰 Prep container and create user
+      - name: 🧰 Prep container
         run: |
-          set -e
+          set -e 
           
-          echo "🔌 Setting up XBPS repositories..."
-          mkdir -p /etc/xbps.d
-          cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/ || true
-
-          echo "⚡ Updating core package manager..."
-          env -u XBPS_TARGET_ARCH xbps-install -Syu xbps || exit 1
+          mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
+          env -u XBPS_TARGET_ARCH xbps-install -Syu xbps
+          env -u XBPS_TARGET_ARCH xbps-install -yu
           
-          echo "🔄 Full system upgrade inside runner..."
-          env -u XBPS_TARGET_ARCH xbps-install -yu || exit 1
-
-          echo "📦 Installing build tools and gh cli..."
-          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq zip unzip git xtools gh coreutils shadow || exit 1
+          # ИСПРАВЛЕНИЕ: Добавлен пакет 'shadow', где живет useradd/groupadd
+          env -u XBPS_TARGET_ARCH xbps-install -y sudo bash curl grep jq zip unzip git gh xtools coreutils shadow || exit 1
           
-          # Безопасное создание группы и пользователя
-          if ! getent group xbuilder > /dev/null 2>&1; then
-            echo "👥 Creating group 'xbuilder'..."
-            groupadd --gid 1001 xbuilder
-          fi
+          # ИСПРАВЛЕНИЕ: Используем addgroup/adduser вместо ручного создания UID/GID
+          getent group xbuilder >/dev/null || addgroup --gid 1001 xbuilder
+          id builder >/dev/null 2>&1 || adduser --home /home/builder --shell $(which bash) --ingroup xbuilder --disabled-password builder
+          
+          chown -R builder:builder /home/builder
 
-          if ! id builder > /dev/null 2>&1; then
-            echo "👤 Creating user 'builder'..."
-            useradd --create-home --shell $(which bash) --groups xbuilder builder
-            chown -R builder:builder /home/builder
-          else
-            echo "ℹ️ User 'builder' already exists."
-          fi
-
-      # --- Клонирование void-packages и слияние шаблонов ---
+      # --- Клонируем void-packages и применяем свои шаблоны ---
       - name: 🔎 Checkout void-packages
         uses: actions/checkout@v6
         with:
@@ -79,9 +64,10 @@ jobs:
           ref: master
           path: void-packages
 
-      - name: 🐛 Fix sourcepkg.sh (musl compatibility)
+      - name: 🐛 Fix sourcepkg.sh
         working-directory: void-packages
-        run: sed -i "s@for var in \$(awk .*;@for var in \$(printenv | cut -d'=' -f1);@" common/environment/setup/sourcepkg.sh
+        run: |
+          sed -i "s@for var in \$(awk .*;@for var in \$(printenv | cut -d'=' -f1);@" common/environment/setup/sourcepkg.sh
 
       - name: 🧩 Merge this repository into void-packages
         working-directory: void-packages
@@ -90,56 +76,66 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote add custom "https://github.com/$REPO_OWNER/$REPO_NAME.git"
-          git fetch custom
-          git merge --no-commit --strategy-option=theirs --allow-unrelated-histories -Xignore-space-change custom/main
+          git config --global --add safe.directory "*"
+          
+          # ИСПРАВЛЕНИЕ: Убран лишний флаг '-f' у remote add
+          git remote add $REPO_OWNER https://github.com/$REPO_OWNER/$REPO_NAME.git
+          git fetch $REPO_OWNER
+          
+          # ИСПРАВЛЕНИЕ: Явный путь к ветке origin/main для избежания конфликтов FETCH_HEAD
+          git merge --no-commit --strategy-option=theirs --allow-unrelated-histories -Xignore-space-change $REPO_OWNER/main
+          
           mkdir -p hostdir/binpkgs
-          
-          # Сохраняем старые пакеты от предыдущих запусков
-          gh release download --pattern "*${ARCH}*" --dir hostdir/binpkgs --repo $REPO_OWNER/$REPO_NAME || true
-          
-          # Чистим конфликтующие архитектуры из артефактов
-          rm -f hostdir/binpkgs/*$ARCH-musl*.xbps 2>/dev/null || true
-          rm -f hostdir/binpkgs/*$ARCH-glibc*.xbps 2>/dev/null || true
-          rm -f hostdir/binpkgs/*.sig2 2>/dev/null || true
 
-      # --- Определение пакетов на сборку ---
+          # Download old packages so as not to lose them
+          gh release download --pattern "*${ARCH}*" --dir hostdir/binpkgs --repo $REPO_OWNER/$REPO_NAME || true
+
+          if [ "$ARCH" = "aarch64" ]; then
+            rm --force hostdir/binpkgs/*x86_64* 2>/dev/null || true
+            rm --force hostdir/binpkgs/*aarch64-musl* 2>/dev/null || true
+          elif [ "$ARCH" = "aarch64-musl" ]; then
+            rm --force hostdir/binpkgs/*x86_64* 2>/dev/null || true
+            rm --force hostdir/binpkgs/*aarch64-glibc* 2>/dev/null || true
+          fi
+          rm --force hostdir/binpkgs/*.sig2 2>/dev/null || true
+          
+      # Determine which packages to build.
       - name: 📋 Identify changes to build
         working-directory: void-packages
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARCH: ${{ matrix.config.arch }}
           SHA: ${{ github.sha }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
-          latest_tag=$(gh release view --json tagName --jq '.tagName' || echo "")
-          if [ -n "$latest_tag" ]; then
-            latest_sha=$(git rev-list -1 "$latest_tag")
-          else
-            latest_sha=$(git rev-list --max-parents=0 HEAD)
-          fi
-          
-          echo "🕵️ Comparing against: $latest_tag ($latest_sha)"
-          
+          latest_name=$(gh release view --json tagName --jq '.tagName' --repo $REPO_OWNER/$REPO_NAME || echo "Initial Commit")
+          latest_sha=$(git rev-list --max-count=1 ${latest_name} 2>/dev/null || git rev-list --max-parents=0 HEAD)
+          echo "Latest Tag Name: ${latest_name}"
+          echo "Latest Tag SHA: ${latest_sha}"
+
           chown -R builder:builder .
-          git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/xlibre/**' \
+          git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
           | cut -d/ -f 2 | uniq | sort -u | tee /tmp/templates
 
       - name: 🧹 Clean outdated .xbps for changed packages
         working-directory: void-packages
         run: |
-          pkgs=$(cat /tmp/templates)
-          if [ -z "$pkgs" ]; then echo "✅ No template changes detected."; exit 0; fi
-          
-          echo "📋 Packages to rebuild:"
+          echo "📋 Packages to build:"
           cat /tmp/templates
-          
-          for pkg in $pkgs; do
-            echo "🧹 Deleting old artifacts for $pkg..."
-            find hostdir/binpkgs -name "${pkg}-*.xbps" -exec rm -fv {} + || true
-            find hostdir/binpkgs -name "${pkg}-*.sig2" -exec rm -fv {} + || true
-          done
 
-      # --- Настройка окружения сборки ---
-      - name: 🛠️ Setup void-packages conf
+          for pkg in $(cat /tmp/templates); do
+            echo "🔍 Searching for old packages for $pkg..."
+            
+            echo "🧹 Deleting old $pkg .xbps files as builder..."
+            sudo -Eu builder find hostdir/binpkgs -name "${pkg}-*.xbps" -exec rm -fv {} + || true
+
+            echo "🧹 Deleting old $pkg .sig2 files as builder..."
+            sudo -Eu builder find hostdir/binpkgs -name "${pkg}-*.sig2" -exec rm -fv {} + || true
+          done
+            
+      # --- Настройка xbps-src ---
+      - name: 🛠️ Setup void-packages
         working-directory: void-packages
         run: |
           chown -R builder:builder .
@@ -149,50 +145,60 @@ jobs:
           echo XBPS_CHROOT_CMD=uchroot >> etc/conf
           echo 'XBPS_REPOSITORY=$PWD/hostdir/binpkgs' >> etc/conf
           echo 'XBPS_DISTDIR=$PWD/hostdir/distfiles' >> etc/conf
+          echo 'XBPS_MASTERDIR_PKGS="$PWD/hostdir/binpkgs"' >> etc/conf
 
-      - name: 🔧 Prepare masterdir (bootstrap)
+      - name: 🔧 Prepare masterdir
         working-directory: void-packages
         env:
           ARCH: ${{ matrix.config.arch }}
         run: |
+          chown -R builder:builder .
           yes | sudo -Eu builder ./xbps-src -m masterdir-${ARCH} -A ${ARCH} binary-bootstrap
 
-      - name: ✅ Install base-devtools in chroot
+      - name: ✅ Install gawk in chroot
         working-directory: void-packages
         env:
           ARCH: ${{ matrix.config.arch }}
         run: |
-          MASTER="masterdir-${ARCH}"
-          mount --bind /proc "$MASTER/proc"
-          mount --bind /dev "$MASTER/dev"
-          mount --bind /sys "$MASTER/sys"
-          chroot "$MASTER" xbps-install -y base-devel meson ninja python3 gettext-devel libxcvt-devel libdrm-devel eudev-libudev-devel
-          umount "$MASTER/proc" "$MASTER/dev" "$MASTER/sys"
+          MASTERDIR="masterdir-${ARCH}"
+          if [ ! -d "$MASTERDIR" ]; then echo "❌ Error: $MASTERDIR does not exist"; exit 1; fi
+
+          sudo mkdir -p "$MASTERDIR/etc/xbps.d"
+          [ -d "/usr/share/xbps.d" ] && sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/" || { echo "❌ Not found /usr/share/xbps.d/"; exit 1; }
+
+          sudo mount --bind /proc "$MASTERDIR/proc" || true
+          sudo mount --bind /dev "$MASTERDIR/dev" || true
+          sudo mount --bind /sys "$MASTERDIR/sys" || true
+
+          yes | sudo chroot "$MASTERDIR" xbps-install -y gawk || { echo "❌ gawk installation failed"; sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null; exit 1; }
+          { [ -f "$MASTERDIR/usr/bin/awk" ] || [ -f "$MASTERDIR/usr/bin/gawk" ]; } || { echo "❌ awk not found"; sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null; exit 1; }
+
+          sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null
 
       - name: 🗑️ Reset package cache & sync repos
         working-directory: void-packages
         run: sudo -Eu builder ./xbps-src clean || true
 
-      # --- Сборка пакета xlibre ---
+      # --- Сборка ---
       - name: 📦 Build pkgs
         working-directory: void-packages
         env:
           ARCH: ${{ matrix.config.arch }}
         run: |
+          chown -R builder:builder .
           pkgs=$(cat /tmp/templates)
-          if [ -z "$pkgs" ]; then echo "Nothing to build"; exit 0; fi
-          
-          for pkg in $pkgs; do
+          for pkg in ${pkgs}; do
             echo "🏗️ Building $pkg for $ARCH..."
-            timeout 3h sudo -Eu builder ./xbps-src -f pkg -j$(nproc) -m masterdir-${ARCH} -A ${ARCH} "${pkg}" || echo "⚠️ Failed building ${pkg}, continuing..."
+            timeout 3h sudo -Eu builder ./xbps-src -f pkg -j$(nproc) -m masterdir-${ARCH} -A ${ARCH} "${pkg}" || printf "Failed building ${pkg}!\n"
           done
           
       - name: 📊 Report what was built
         working-directory: void-packages/hostdir/binpkgs
         run: |
-          ls -1 *.xbps 2>/dev/null || echo "No new binaries."
-
-      # --- Индексация и подпись репозитория ---
+          count=$(ls -1 *.xbps 2>/dev/null | wc -l)
+          echo "=== Built $count packages ==="
+          ls -1 *.xbps | sort
+          
       - name: 📦 Sign & Index repo
         working-directory: void-packages/hostdir/binpkgs
         env:
@@ -201,71 +207,104 @@ jobs:
         run: |
           set -e
           export PATH="/opt/xbps/usr/bin/:$PATH"
-          rm -f repodata* index.* *.plist sha256sums* sha512sums*
-          
+
+          echo "🗑️ Removing old repodata files..."
+          rm -f *-repodata index.* *.plist sha256sums* sha512sums*
+
           count=$(ls -1 *.xbps 2>/dev/null | wc -l)
           if [ "$count" -eq 0 ]; then
-            echo "⚠️ No .xbps files found after build step."
+            echo "⚠️ No .xbps files found. Skipping indexing."
             exit 0
           fi
 
-          echo "✅ Found $count packages. Generating indexes..."
+          echo "✅ Found $count packages. Building new repodata..."
           xbps-rindex -a *.xbps
 
           if [ -n "$PRIV_KEY" ]; then
             printf "%s\n" "$PRIV_KEY" > private.pem
             chmod 600 private.pem
-            
+
             xbps-rindex -r "$PWD"
-            xbps-rindex -s --signedby "Void CI Bot <ci@example.com>" --privkey private.pem "$PWD"
+            xbps-rindex -s --signedby "CI Bot <ci@example.com>" --privkey private.pem "$PWD"
             xbps-rindex -S --privkey private.pem "$PWD"/*.xbps
             xbps-rindex -c "$PWD"
-            
+
             rm -f private.pem
           else
-            echo "⚠️ No PRIV_KEY secret provided — skipping signing."
+            echo "⚠️ No PRIV_KEY — skipping signing."
           fi
 
+          echo "✅ Repodata rebuilt and signed."
+          
+      - name: 🔢 Checksum
+        working-directory: void-packages/hostdir/binpkgs
+        run: |
+          rm -rf *.sha256sum *.sha512sum
+          for file in *.xbps; do
+            sha256sum "${file}" | cut -d ' ' -f 1 > "${file}.sha256sum"
+            sha512sum "${file}" | cut -d ' ' -f 1 > "${file}.sha512sum"
+          done
+          
       - name: ⬇️ Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.config.arch }}-binpkgs
+          name: ${{ matrix.config.arch }}-repodata
           path: void-packages/hostdir/binpkgs
-          retention-days: 7
+          retention-days: 5
 
-      # --- Загрузка в GitHub Releases ---
-      - name: 📤 Create Release & Upload Assets
-        if: success() && github.ref == 'refs/heads/main'
+      - name: 📤 Upload to Release (fully fixed)
+        if: github.ref == 'refs/heads/main'
         working-directory: void-packages/hostdir/binpkgs
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
           ARCH: ${{ matrix.config.arch }}
         run: |
           set -euo pipefail
-          TAG="${ARCH}-latest"
-          NAME="XLibre Repository for $ARCH"
-          
-          API="https://api.github.com/repos/${{ github.repository }}"
           AUTH="Authorization: Bearer $GH_TOKEN"
           ACCEPT="Accept: application/vnd.github+json"
+          API="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME"
 
-          EXISTING=$(curl -s -H "$AUTH" -H "$ACCEPT" "$API/releases/tags/$TAG" || echo "{}")
-          ID=$(echo "$EXISTING" | jq -r '.id')
-          if [ "$ID" != "null" ]; then
-            echo "🗑️ Removing old release $TAG (ID: $ID)..."
-            curl -s -X DELETE -H "$AUTH" -H "$ACCEPT" "$API/releases/$ID" > /dev/null
+          TAG="$ARCH-latest"
+          NAME="Binary repo for $ARCH"
+          COMMIT_SHA="${{ github.sha }}"
+
+          EXISTING_RELEASE=$(curl -s -H "$AUTH" -H "$ACCEPT" "$API/releases/tags/$TAG" || echo "")
+
+          if [ -n "$EXISTING_RELEASE" ] && echo "$EXISTING_RELEASE" | jq -e '.id' > /dev/null 2>&1; then
+            RELEASE_ID=$(echo "$EXISTING_RELEASE" | jq -r '.id')
+            echo "🗑️ Deleting old release ID $RELEASE_ID..."
+            curl -s -X DELETE -H "$AUTH" -H "$ACCEPT" "$API/releases/$RELEASE_ID" || true
           fi
 
-          BODY=$(jq -nc --arg t "$TAG" --arg n "$NAME" '{tag_name:$t, name:$n, draft:false, prerelease:false}')
-          NEW=$(curl -s -X POST -H "$AUTH" -H "$ACCEPT" -H "Content-Type: application/json" -d "$BODY" "$API/releases")
-          REL_ID=$(echo "$NEW" | jq -r '.id')
+          CREATE_BODY=$(jq -n --arg tag "$TAG" --arg commit "$COMMIT_SHA" --arg name "$NAME" '
+            { tag_name: $tag, target_commitish: $commit, name: $name, draft: false, prerelease: false }
+          ')
+          NEW_RELEASE=$(curl -s -X POST -H "$AUTH" -H "$ACCEPT" -H "Content-Type: application/json" \
+            -d "$CREATE_BODY" "$API/releases")
 
-          for file in *.xbps *.sig2 *-repodata; do
+          RELEASE_ID=$(echo "$NEW_RELEASE" | jq -r '.id')
+          if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
+            echo "❌ Failed to create release"
+            echo "$NEW_RELEASE"
+            exit 1
+          fi
+
+          echo "✅ Release created: ID $RELEASE_ID"
+
+          for file in *.xbps *.sig2 ${ARCH}-repodata; do
             if [ -f "$file" ]; then
               echo "📤 Uploading $file..."
-              curl -s --fail -X POST -H "$AUTH" -H "Content-Type: application/octet-stream" \
+              curl -s -L \
+                -X POST \
+                -H "$AUTH" \
+                -H "Content-Type: application/octet-stream" \
                 --data-binary "@$file" \
-                "$API/releases/$REL_ID/assets?name=$file"
+                "https://uploads.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$file" \
+                --fail
             fi
           done
+
+          echo "🎉 All files uploaded successfully."
