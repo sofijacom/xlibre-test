@@ -116,46 +116,54 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "🔍 Identifying changed packages..."
+          echo "🔍 Выявление измененных пакетов..."
           
-          # Обновляем данные о remote-ветках. Это критично для detached HEAD в CI.
-          git fetch origin main --depth=1000 || true
-          
+          # Принудительно обновляем список удаленных веток
+          git fetch --all --prune --depth=500
+
+          # Определяем имя основной ветки (Main или Master)
+          DEFAULT_BRANCH=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5)
+          if [ -z "$DEFAULT_BRANCH" ]; then
+             # Fallback для старых версий git
+             DEFAULT_BRANCH="main"
+          fi
+          echo "Обнаружена основная ветка: $DEFAULT_BRANCH"
+
           chown -R builder:builder srcpkgs hostdir etc .git || true
           
           latest_name=$(gh release view --json tagName --jq '.tagName' --repo $REPO_OWNER/$REPO_NAME 2>/dev/null || echo "")
           
           if [ -z "$latest_name" ]; then
-            echo "No releases found. Comparing against the initial commit of main."
+            echo "Релиз-версии не найдены. Сравнение с первоначальным коммитом ветки '$DEFAULT_BRANCH'."
             
-            # Проверяем, есть ли у текущего SHA родители
+            # Проверяем наличие родителей у текущего коммита
             PARENTS=$(git rev-list --parents -n 1 "${SHA}" | wc -w)
             
             if [ "$PARENTS" -gt 1 ]; then
-              # Если родитель есть, сравниваем с корнем ветки main
-              latest_sha=$(git rev-list --max-parents=0 origin/main)
+              # Берем самый первый коммит из истории этой ветки
+              latest_sha=$(git rev-list --max-parents=0 "origin/$DEFAULT_BRANCH")
             else
-              # Если это самый первый коммит в репозитории (root commit),
-              # используем пустой хеш, чтобы diff-tree выдал все файлы.
+              # Если это корень всей истории вообще — сравниваем с пустой строкой
               latest_sha=$(git hash-object --stdin </dev/null)
             fi
           else
-            echo "Found release: $latest_name"
+            echo "Найден релиз: $latest_name"
             latest_sha=$(git rev-list --max-count=1 "$latest_name")
           fi
           
-          echo "Comparing range: $latest_sha ... $SHA"
+          echo "Диапазон сравнения: $latest_sha ... $SHA"
           
+          # Собираем список папок внутри srcpkgs
           CHANGED_PKGS=$(git diff-tree -r --no-renames --name-only --diff-filter=AM ${latest_sha} ${SHA} -- 'srcpkgs/**' \
             | cut -d/ -f 2 | sort -u)
             
           if [ -z "$CHANGED_PKGS" ]; then
-            echo "✅ No template files changed in this commit."
+            echo "✅ Изменений в шаблонах пакетов не обнаружено."
             exit 0
           fi
           
           echo "$CHANGED_PKGS" > /tmp/templates
-          echo "Templates to build:"
+          echo "Шаблоны к сборке:"
           cat /tmp/templates
           
       - name: Setup void-packages
