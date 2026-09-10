@@ -179,51 +179,6 @@ jobs:
           else
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
-
-          echo "MASTERDIR_PATH=$PWD/masterdir-$HOST" >> "$GITHUB_OUTPUT"
-          
-      - name: ✅ Install gawk in chroot
-        needs: setup-emulation-and-bootstrap-masterdir # Указываем зависимость!
-        env:
-          MASTERDIR: ${{ needs.setup-emulation-and-bootstrap-masterdir.outputs.MASTERDIR_PATH }}
-        run: |
-          if [ ! -d "$MASTERDIR" ]; then 
-            echo "❌ Error: $MASTERDIR does not exist"; exit 1; fi
-          # ... остальной код без изменений ...
-          
-          echo "🔧 Mounting /proc, /dev, /sys into $MASTERDIR..."
-          sudo mkdir -p "$MASTERDIR/etc/xbps.d"
-          
-          # Копируем репозитории Void внутрь будущего корня
-          if [ -d "/usr/share/xbps.d" ]; then
-            sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/"
-          else
-            echo "❌ Not found /usr/share/xbps.d/ on host!"
-            exit 1
-          fi
-
-          # Монтируем системные директории для работы пакетного менеджера внутри chroot
-          sudo mount --bind /proc "$MASTERDIR/proc" || true
-          sudo mount --bind /dev "$MASTERDIR/dev" || true
-          sudo mount --bind /sys "$MASTERDIR/sys" || true
-
-          echo "📦 Installing gawk inside the masterdir..."
-          # Внутри chroot устанавливаем утилиту. yes передает 'y' на вопросы.
-          if ! yes | sudo chroot "$MASTERDIR" xbps-install -y gawk; then
-            echo "❌ gawk installation failed"
-            sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null || true
-            exit 1
-          fi
-
-          # Проверяем, что симлинк /bin/sh или /usr/bin/awk теперь ведет на gawk
-          if [ ! -x "$MASTERDIR/usr/bin/gawk" ] && [ ! -L "$MASTERDIR/usr/bin/awk" ]; then
-            echo "❌ awk/gawk binary is missing after install"
-            sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null || true
-            exit 1
-          fi
-
-          echo "🧹 Cleaning up mounts..."
-          sudo umount "$MASTERDIR/proc" "$MASTERDIR/dev" "$MASTERDIR/sys" 2>/dev/null || true
           
       - name: build pkgs
         working-directory: void-packages
