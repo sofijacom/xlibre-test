@@ -178,7 +178,7 @@ jobs:
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
 
-      - name: Install Toolchain (Final)
+      - name: Install Toolchain (Final with nonfree repo)
         working-directory: void-packages
         env:
           ARCH: ${{ matrix.config.arch }}
@@ -196,26 +196,38 @@ jobs:
             sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/"
           fi
 
+          # --- КРИТИЧЕСКАЯ ДОБАВКА ---
+          # Добавляем репозиторий 'nonfree', где лежат кросс-компиляторы
+          echo 'repository=https://repo-default.voidlinux.org/current/musl/nonfree' | \
+            sudo tee "$MASTERDIR/etc/xbps.d/20-nonfree.conf" > /dev/null
+            
+          # Если цель glibc, добавляем и туда тоже (на всякий случай)
+          if [ "$LIBC" = "glibc" ]; then
+            echo 'repository=https://repo-default.voidlinux.org/current/nonfree' | \
+              sudo tee "$MASTERDIR/etc/xbps.d/21-nonfree-glibc.conf" > /dev/null
+          fi
+
           echo "🔩 Устанавливаем GAWK..."
           yes | sudo xbps-install -y -r "$MASTERDIR" gawk || { echo "GAWK fail"; exit 1; }
 
           echo "🛠️ Формируем тулчейн..."
           
-          # --- ИСПРАВЛЕНО ТУТ: вместо 'glibc' пишем 'gnu' ---
           GCC_PKG="cross-${ARCH}-linux-gnu-gcc"
           BINUTILS_PKG="cross-${ARCH}-linux-gnu-binutils"
 
           echo "Target package: $GCC_PKG"
           
-          # Обновляем индексы пакетов ВНУТРИ песочницы
+          # Обновляем индексы пакетов ВНУТРИ песочницы С УЧЕТОМ НОВОГО РЕПО
           sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
           
           # Ставим всё одним махом
           if yes | sudo xbps-install -y -r "$MASTERDIR" base-devel make "$GCC_PKG" "$BINUTILS_PKG" pkg-config autoconf automake libtool; then
             echo "✅ Тулчейн ($GCC_PKG) установлен."
           else
-            echo "❌ Ошибка установки!"
-            sudo xbps-install -y -r "$MASTERDIR" "$GCC_PKG"
+            echo "❌ Ошибка установки! Пробуем установить компоненты по отдельности:"
+            # Пытаемся поставить binutils отдельно, чтобы увидеть ошибку точнее
+            sudo xbps-install -y -r "$MASTERDIR" "$BINUTILS_PKG" && echo "Binutils OK" || echo "Binutils FAIL"
+            sudo xbps-install -y -r "$MASTERDIR" "$GCC_PKG" && echo "GCC OK" || echo "GCC FAIL"
             exit 1
           fi
           
