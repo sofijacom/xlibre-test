@@ -68,7 +68,7 @@ jobs:
 
       # --- НАЧАЛО НОВОГО ШАГА КЭШИРОВАНИЯ ---
       - name: Cache void-packages directories
-        uses: actions/cache@v4
+        uses: actions/cache@v6.1.0
         id: cache-restore
         with:
           path: |
