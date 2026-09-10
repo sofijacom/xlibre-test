@@ -21,7 +21,8 @@ checksum=8429acab3df07ea0ea8d1f6d2584abd6bfe877c533cf21adebad95ef9d799b4c
 LDFLAGS="-Wl,-z,lazy"
 
 pre_configure() {
-	NOCONFIGURE=1 ./autogen.sh
+	autoreconf -fi
+#	NOCONFIGURE=1 ./autogen.sh
 }
 
 post_install() {
