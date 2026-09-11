@@ -148,32 +148,29 @@ jobs:
           
           echo "🐧 Bootstrapping masterdir for $ARCH using host $HOST..."
           
-          # 1. Создаем папку мастера РАНЬШЕ xbps-src. 
-          # Используем root (мы уже в нем) и полный путь $PWD.
           MASTERDIR_PATH="$PWD/masterdir-$HOST"
           
           echo "📁 Creating directory: $MASTERDIR_PATH"
           rm -rf "$MASTERDIR_PATH" || true
           mkdir -p "$MASTERDIR_PATH"
           
-          # 2. Даем права билдеру на УЖЕ созданную папку
           chown -R builder:builder "$MASTERDIR_PATH"
           
-          # 3. Экспортируем переменные окружения принудительно
           export XBPS_MASTERDIR="$MASTERDIR_PATH"
           export XBPS_DISTDIR="$PWD/hostdir/distfiles"
           export XBPS_REPOSITORY="$PWD/hostdir/binpkgs"
           
-          # Включаем эмуляцию binfmt_misc (критично для aarch64 на x86_64)
           sudo update-binfmts --enable > /dev/null 2>&1 || true
           
-          # 4. Запускаем бутстрап. Теперь он НЕ будет пытаться создавать папку,
-          # он найдет её существующей и начнет распаковку base-system внутрь.
-          if [[ "$HOST" == "$ARCH" ]]; then
-            yes | sudo -Eu builder ./xbps-src -A "$HOST" binary-bootstrap
-          else
-            yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
-          fi
+          # === ФИКС ОШИБКИ [[: not found] ===
+          # Вызываем явный bash для строки с двойными скобками
+          /bin/bash -c '
+            if [[ "'"$HOST"'" == "'"$ARCH"'" ]]; then
+              yes | sudo -Eu builder ./xbps-src -A "$HOST" binary-bootstrap
+            else
+              yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
+            fi
+          '
           
       - name: Install Gawk in masterdir
         working-directory: void-packages
