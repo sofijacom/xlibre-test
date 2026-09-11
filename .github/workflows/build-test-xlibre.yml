@@ -167,35 +167,7 @@ jobs:
           else
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
-          
-      - name: Install Gawk in masterdir
-        working-directory: void-packages
-        env:
-          HOST: ${{ matrix.config.host }}
-        run: |
-          MASTERDIR="$PWD/masterdir-$HOST"
-          
-          if [ ! -d "$MASTERDIR" ]; then 
-            echo "❌ $MASTERDIR missing"; exit 1; fi
-
-          sudo mkdir -p "$MASTERDIR/etc/xbps.d"
-          if [ -d "/usr/share/xbps.d" ]; then
-            sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/"
-          fi
-
-          if [ -x "$MASTERDIR/usr/bin/gawk" ] || [ -L "$MASTERDIR/usr/bin/awk" ]; then
-            echo "✅ Gawk already present."
-          else
-            echo "📦 Installing GAWK inside masterdir..."
-            sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
-            if yes | sudo xbps-install -y -r "$MASTERDIR" gawk; then
-              echo "✅ Gawk installed."
-            else
-              echo "❌ Failed to install gawk!"
-              exit 1
-            fi
-          fi
-          
+           
       - name: Install Gawk in masterdir
         working-directory: void-packages
         env:
