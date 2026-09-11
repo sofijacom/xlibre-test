@@ -175,41 +175,48 @@ jobs:
             yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
           fi
           
-      - name: Fake Cross Toolchain (Hack v2 - GNU fix)
+      - name: Install Gawk in masterdir
         working-directory: void-packages
         env:
-          ARCH: ${{ matrix.config.arch }}
           HOST: ${{ matrix.config.host }}
-          LIBC: ${{ matrix.config.libc }} # Будет 'glibc'
         run: |
           MASTERDIR="$PWD/masterdir-$HOST"
           
           if [ ! -d "$MASTERDIR" ]; then 
             echo "❌ $MASTERDIR missing"; exit 1; fi
 
-          # Ставим только необходимое (gawk уже пропатчен вашим sed ранее)
-          sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
-          yes | sudo xbps-install -y -r "$MASTERDIR" base-devel make || { echo "Base install fail"; exit 1; }
+          # Копируем конфиги репо хоста внутрь мастера для доступа к сети xbps
+          sudo mkdir -p "$MASTERDIR/etc/xbps.d"
+          if [ -d "/usr/share/xbps.d" ]; then
+            sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/"
+          fi
 
-          echo "🎭 Создаем фейковый тулчейн..."
+          echo "🔩 Проверяем наличие gawk..."
           
-          # Формируем точный префикс: arch + system(всегда linux) + libc(всегда gnu)
-          PREFIX="${ARCH}-linux-gnu"
-          CROSS_BIN_DIR="$MASTERDIR/usr/${PREFIX}/bin"
-          
-          sudo mkdir -p "$CROSS_BIN_DIR"
-          
-          # Подменяем бинарники хоста на целевые имена
-          echo "Linking host tools to target prefix: $PREFIX"
-          sudo ln -sf /usr/bin/gcc    "$CROSS_BIN_DIR/${PREFIX}-gcc"
-          sudo ln -sf /usr/bin/g++    "$CROSS_BIN_DIR/${PREFIX}-g++"
-          sudo ln -sf /usr/bin/ar     "$CROSS_BIN_DIR/${PREFIX}-ar"
-          sudo ln -sf /usr/bin/ld.bfd "$CROSS_BIN_DIR/${PREFIX}-ld" # Важно использовать ld.bfd
-          sudo ln -sf /usr/bin/strip  "$CROSS_BIN_DIR/${PREFIX}-strip"
-          sudo ln -sf /usr/bin/objcopy "$CROSS_BIN_DIR/${PREFIX}-objcopy"
-
-          ls -la "$CROSS_BIN_DIR/"
-          echo "✅ Фейк готов."
+          # Проверка наличия бинарника или симлинка 'awk'
+          if [ -x "$MASTERDIR/usr/bin/gawk" ] || [ -L "$MASTERDIR/usr/bin/awk" ]; then
+            echo "✅ Gawk уже на месте."
+          else
+            echo "📦 Устанавливаем GAWK..."
+            
+            # Обновляем индексы ВНУТРИ мастера перед установкой
+            sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
+            
+            # Ставим пакет напрямую в папку (-r), БЕЗ использования mount/chroot
+            if yes | sudo xbps-install -y -r "$MASTERDIR" gawk; then
+              echo "✅ Gawk установлен."
+              
+              # Контрольная проверка после установки
+              if [ ! -x "$MASTERDIR/usr/bin/gawk" ]; then
+                echo "❌ Критическая ошибка: бинарник исчез после установки!"
+                ls -la "$MASTERDIR"/usr/bin/ga*
+                exit 1
+              fi
+            else
+              echo "❌ Установка провалилась!"
+              exit 1
+            fi
+          fi
           
       - name: build pkgs
         working-directory: void-packages
