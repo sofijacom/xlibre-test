@@ -24,18 +24,6 @@ pre_configure() {
 	autoreconf -fi
 }
 
-# Создаем пустые заглушки для отсутствующих заголовков VBE/VGA
-post_extract() {
-	mkdir -p "${wrksrc}/stub-includes/xorg"
-	touch "${wrksrc}/stub-includes/xorg/vbe.h"
-	touch "${wrksrc}/stub-includes/xorg/compiler.h" 
-	touch "${wrksrc}/stub-includes/xorg/vgaHW.h"
-	
-	# Говорим GCC искать наши заглушки в первую очередь
-	export CFLAGS="-I${wrksrc}/stub-includes $CFLAGS"
-	export CPPFLAGS="-I${wrksrc}/stub-includes $CPPFLAGS"
-}
-
 post_install() {
 	vlicense COPYING
 }
