@@ -6,8 +6,8 @@ revision=3
 # archs="i686* x86_64*"
 build_style=gnu-configure
 configure_args="--prefix=/usr --with-udev-rules-dir=/usr/lib/udev/rules.d"
-hostmakedepends="pkg-config xlibre-xserver-devel xorgproto xorg-util-macros autoconf autoconf-archive automake libtool git gawk"
-makedepends="xlibre-xserver-devel fakeroot gawk gettext pkgconf xorgproto linux-headers"
+hostmakedepends="pkg-config xlibre-xserver-devel libdrm-devel xorgproto xorg-util-macros autoconf autoconf-archive automake libtool git gawk"
+makedepends="xlibre-xserver-devel fakeroot gawk gettext pkgconf xorgproto linux-headers libdrm-devel"
 depends="virtual?xserver-abi-input-24_1"
 short_desc="XLibre fork of X.Org VMWare Mouse input driver"
 maintainer="Sofiya <sofiya@v.com>"
