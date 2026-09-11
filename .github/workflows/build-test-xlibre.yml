@@ -225,16 +225,20 @@ jobs:
           pkgs=$(cat /tmp/templates)
     
           echo "📦 Starting build loop for packages in this commit..."
-      
-          for pkg in $pkgs; do
-            echo "🏗️ Building $pkg for $ARCH..."
-            
-            if [[ "${{ matrix.config.host }}" == "${{ matrix.config.arch }}" ]]; then
-              sudo -Eu builder ./xbps-src pkg -j$(nproc) -A "${{ matrix.config.host }}" "$pkg" || printf "Failed building %s!\n" "$pkg"
-            else
-              sudo -Eu builder ./xbps-src pkg -j$(nproc) -a "${{ matrix.config.arch }}" -A "${{ matrix.config.host }}" "$pkg" || printf "❌ Failed building: %s!\n" "$pkg"
-            fi
-          done
+          
+          # Принудительно вызываем bash для всего цикла
+          exec /bin/bash <<'EOF'
+            set -e
+            for pkg in $pkgs; do
+              echo "🏗️ Building $pkg for $ARCH..."
+              
+              if [[ "$HOST" == "$ARCH" ]]; then
+                sudo -Eu builder ./xbps-src pkg -j$(nproc) -A "$HOST" "$pkg"
+              else
+                sudo -Eu builder ./xbps-src pkg -j$(nproc) -a "$ARCH" -A "$HOST" "$pkg"
+              fi
+            done
+            EOF
           
       - name: Clean & sign
         working-directory: void-packages/hostdir/binpkgs
