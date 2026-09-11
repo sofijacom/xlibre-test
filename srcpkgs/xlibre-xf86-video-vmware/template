@@ -21,10 +21,10 @@ checksum=5aabf5932fe071c21f621a5bfa5bc93523cbd6ef10cef5f3ecf89bf0ea66bbb4
 LDFLAGS="-Wl,-z,lazy"
 
 pre_configure() {
-#  NOCONFIGURE=1 ./autogen.sh
-	autoreconf -fi
+  NOCONFIGURE=1 ./autogen.sh
+#	autoreconf -fi
 
-	export CFLAGS="$CFLAGS -D_DEFAULT_SOURCE -fpermissive"
+  export CFLAGS="$CFLAGS -D_DEFAULT_SOURCE -Wno-error=implicit-function-declaration"
 }
 
 post_install() {
