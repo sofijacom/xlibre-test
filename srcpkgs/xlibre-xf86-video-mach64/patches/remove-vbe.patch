@@ -1,9 +1,28 @@
 --- a/src/atipreinit.c
 +++ b/src/atipreinit.c
-@@ -48,7 +48,9 @@
- #include "atiadapter.h"
- #include "atichip.h"
- #include "atistruct.h"
-+#if 0 /* VBE headers are not provided by Xlibre in Void */
+@@ -128,7 +128,9 @@
+ #include "atiadjust.h"
+ #include "atixv.h"
+ 
++#if 0 /* Disable all VBE dependencies */
  #include "vbe.h"
 +#endif
+ 
+ /*
+  * FreeScreen handles the clean-up.
+@@ -137,6 +139,7 @@ ATIGetRec(ScrnInfoPtr pScrn)
+         pScrn->driverPrivate = XNFcallocarray(sizeof(ATIRec), 1);
+         memset(pScrn->driverPrivate, 0, sizeof(ATIRec));
+     }
++#if 0 /* Disable entire VBE/BIOS processing block */
+ 
+ #ifndef AVOID_CPIO
+ 
+@@ -1095,6 +1098,7 @@ ati_bios_panel_info(
+     }
+ }
+ 
++#endif /* End of disabled VBE block */
+ 
+ Bool
+ ATIPreInit
