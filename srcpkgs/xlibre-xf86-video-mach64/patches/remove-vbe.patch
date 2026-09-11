@@ -1,0 +1,9 @@
+--- a/src/atipreinit.c
++++ b/src/atipreinit.c
+@@ -48,7 +48,9 @@
+ #include "atiadapter.h"
+ #include "atichip.h"
+ #include "atistruct.h"
++#if 0 /* VBE headers are not provided by Xlibre in Void */
+ #include "vbe.h"
++#endif
