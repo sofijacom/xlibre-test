@@ -137,6 +137,7 @@ jobs:
 
       - name: Setup emulation and bootstrap masterdir
         working-directory: void-packages
+        shell: bash
         env:
           ARCH: ${{ matrix.config.arch }}
           HOST: ${{ matrix.config.host }}
@@ -240,6 +241,7 @@ jobs:
           
       - name: Build pkgs
         working-directory: void-packages
+        shell: bash
         env:
           ARCH: ${{ matrix.config.arch }}
           HOST: ${{ matrix.config.host }}
