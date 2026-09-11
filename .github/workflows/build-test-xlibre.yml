@@ -277,7 +277,16 @@ jobs:
           else
             echo "No packages found to checksum."
           fi
-
+          
+      - name: Save void-packages cache
+        if: success()
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            void-packages/masterdir
+            void-packages/hostdir/distfiles
+          key: void-cache-${{ matrix.config.arch }}-${{ matrix.config.host }}-{{ hashFiles('srcpkgs/**/template') }}
+          
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
         with:
