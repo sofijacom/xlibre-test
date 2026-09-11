@@ -142,18 +142,17 @@ jobs:
           HOST: ${{ matrix.config.host }}
         run: |
           set +e
-          if [ -z "$BASH_VERSION" ]; then
-            exec /bin/bash -e "$0" "$@"
-          fi
-          
-          echo "🐧 Bootstrapping masterdir for $ARCH using host $HOST..."
+          if [ -z "$BASH_VERSION" ]; then exec /bin/bash -e "$0" "$@"; fi
           
           MASTERDIR_PATH="$PWD/masterdir-$HOST"
           
+          echo "🗑️ Cleaning old masterdir..."
+          rm -rf "$MASTERDIR_PATH"
+          
           echo "📁 Creating directory: $MASTERDIR_PATH"
-          rm -rf "$MASTERDIR_PATH" || true
           mkdir -p "$MASTERDIR_PATH"
           
+          # КРИТИЧНО: меняем владельца ДО запуска xbps-src
           chown -R builder:builder "$MASTERDIR_PATH"
           
           export XBPS_MASTERDIR="$MASTERDIR_PATH"
@@ -162,15 +161,39 @@ jobs:
           
           sudo update-binfmts --enable > /dev/null 2>&1 || true
           
-          # === ФИКС ОШИБКИ [[: not found] ===
-          # Вызываем явный bash для строки с двойными скобками
-          /bin/bash -c '
-            if [[ "'"$HOST"'" == "'"$ARCH"'" ]]; then
-              yes | sudo -Eu builder ./xbps-src -A "$HOST" binary-bootstrap
+          if [[ "$HOST" == "$ARCH" ]]; then
+            yes | sudo -Eu builder ./xbps-src -A "$HOST" binary-bootstrap
+          else
+            yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
+          fi
+          
+      - name: Install Gawk in masterdir
+        working-directory: void-packages
+        env:
+          HOST: ${{ matrix.config.host }}
+        run: |
+          MASTERDIR="$PWD/masterdir-$HOST"
+          
+          if [ ! -d "$MASTERDIR" ]; then 
+            echo "❌ $MASTERDIR missing"; exit 1; fi
+
+          sudo mkdir -p "$MASTERDIR/etc/xbps.d"
+          if [ -d "/usr/share/xbps.d" ]; then
+            sudo cp /usr/share/xbps.d/*-repository-*.conf "$MASTERDIR/etc/xbps.d/"
+          fi
+
+          if [ -x "$MASTERDIR/usr/bin/gawk" ] || [ -L "$MASTERDIR/usr/bin/awk" ]; then
+            echo "✅ Gawk already present."
+          else
+            echo "📦 Installing GAWK inside masterdir..."
+            sudo XBPS_CHROOT_CMD=uchroot xbps-install -y -r "$MASTERDIR" -u xbps
+            if yes | sudo xbps-install -y -r "$MASTERDIR" gawk; then
+              echo "✅ Gawk installed."
             else
-              yes | sudo -Eu builder ./xbps-src -a "$ARCH" -A "$HOST" binary-bootstrap
+              echo "❌ Failed to install gawk!"
+              exit 1
             fi
-          '
+          fi
           
       - name: Install Gawk in masterdir
         working-directory: void-packages
@@ -215,7 +238,7 @@ jobs:
             fi
           fi
           
-      - name: build pkgs
+      - name: Build pkgs
         working-directory: void-packages
         env:
           ARCH: ${{ matrix.config.arch }}
@@ -225,20 +248,16 @@ jobs:
           pkgs=$(cat /tmp/templates)
     
           echo "📦 Starting build loop for packages in this commit..."
-          
-          # Принудительно вызываем bash для всего цикла
-          exec /bin/bash <<'EOF'
-            set -e
-            for pkg in $pkgs; do
-              echo "🏗️ Building $pkg for $ARCH..."
-              
-              if [[ "$HOST" == "$ARCH" ]]; then
-                sudo -Eu builder ./xbps-src pkg -j$(nproc) -A "$HOST" "$pkg"
-              else
-                sudo -Eu builder ./xbps-src pkg -j$(nproc) -a "$ARCH" -A "$HOST" "$pkg"
-              fi
-            done
-            EOF
+      
+          for pkg in $pkgs; do
+            echo "🏗️ Building $pkg for $ARCH..."
+            
+            if [[ "${{ matrix.config.host }}" == "${{ matrix.config.arch }}" ]]; then
+              sudo -Eu builder ./xbps-src pkg -j$(nproc) -A "${{ matrix.config.host }}" "$pkg" || printf "Failed building %s!\n" "$pkg"
+            else
+              sudo -Eu builder ./xbps-src pkg -j$(nproc) -a "${{ matrix.config.arch }}" -A "${{ matrix.config.host }}" "$pkg" || printf "❌ Failed building: %s!\n" "$pkg"
+            fi
+          done
           
       - name: Clean & sign
         working-directory: void-packages/hostdir/binpkgs
