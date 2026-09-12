@@ -135,8 +135,14 @@ post_install() {
 	rm -f ${DESTDIR}/etc/X11/xorg.conf.d/10-nvidia-modules.conf.debian
 
 	# Ставим vbe.h из исходников, meson не устанавливает их как SDK
-	find ${wrksrc} -name 'vbe.h' -exec vinstall {} 644 usr/include/xorg \;
-	find ${wrksrc} -name 'vbeModes.h' -exec vinstall {} 644 usr/include/xorg \;
+	vbe_h=$(find ${wrksrc} -name 'vbe.h' | head -n1)
+	vbemodes_h=$(find ${wrksrc} -name 'vbeModes.h' | head -n1)
+	if [ -z "$vbe_h" ] || [ -z "$vbemodes_h" ]; then
+		echo "=> WARNING: vbe.h/vbeModes.h NOT FOUND in ${wrksrc} for ${XBPS_TARGET_MACHINE} — VBE SDK headers won't be shipped!"
+	else
+		vinstall "$vbe_h" 644 usr/include/xorg
+		vinstall "$vbemodes_h" 644 usr/include/xorg
+	fi
 
 	pkg_install() {
 		vmove usr/lib/xorg/protocol.txt
