@@ -134,31 +134,25 @@ post_install() {
 	rm -f ${DESTDIR}/etc/X11/xorg.conf.d/10-nvidia.conf.debian
 	rm -f ${DESTDIR}/etc/X11/xorg.conf.d/10-nvidia-modules.conf.debian
 
-	# Ставим vbe.h из исходников, meson не устанавливает их как SDK
-	#vbe_h=$(find ${wrksrc} -name 'vbe.h' | head -n1)
-	#vbemodes_h=$(find ${wrksrc} -name 'vbeModes.h' | head -n1)
-	#if [ -z "$vbe_h" ] || [ -z "$vbemodes_h" ]; then
-	#	echo "=> WARNING: vbe.h/vbeModes.h NOT FOUND in ${wrksrc} for ${XBPS_TARGET_MACHINE} — VBE SDK headers won't be shipped!"
-	#else
-	#	vinstall "$vbe_h" 644 usr/include/xorg
-	#	vinstall "$vbemodes_h" 644 usr/include/xorg
-	#fi
+  # Ставим vbe/int10 SDK-заголовки из исходников —
+  # meson не устанавливает их как SDK при -Dint10=false (non-x86),
+  # а драйверам они всё равно нужны для компиляции.
 
   vbe_h=$(find ${wrksrc} -name 'vbe.h' | head -n1)
   vbemodes_h=$(find ${wrksrc} -name 'vbeModes.h' | head -n1)
   int10_h=$(find ${wrksrc} -name 'xf86int10.h' | head -n1)
 
   if [ -z "$vbe_h" ] || [ -z "$vbemodes_h" ] || [ -z "$int10_h" ]; then
-	 echo "=> WARNING: vbe.h/vbeModes.h/xf86int10.h NOT FOUND in ${wrksrc} for ${XBPS_TARGET_MACHINE} — VBE/int10 SDK headers won't be shipped!"
+	  echo "=> WARNING: vbe.h/vbeModes.h/xf86int10.h NOT FOUND in ${wrksrc} for ${XBPS_TARGET_MACHINE} — VBE/int10 SDK headers won't be shipped!"
   else
-	 vinstall "$vbe_h" 644 usr/include/xorg
-	 vinstall "$vbemodes_h" 644 usr/include/xorg
-	 vinstall "$int10_h" 644 usr/include/xorg
-fi
+	  vinstall "$vbe_h" 644 usr/include/xorg
+	  vinstall "$vbemodes_h" 644 usr/include/xorg
+	  vinstall "$int10_h" 644 usr/include/xorg
+  fi
 
-	pkg_install() {
-		vmove usr/lib/xorg/protocol.txt
-	}
+#	pkg_install() {
+#		vmove usr/lib/xorg/protocol.txt
+#	}
 }
 
 xlibre-xserver-xnest_package() {
