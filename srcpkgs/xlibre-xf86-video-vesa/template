@@ -22,8 +22,8 @@ CFLAGS="-I$XBPS_CROSS_BASE/usr/include/xorg"
 LDFLAGS="-Wl,-z,lazy"
 
 pre_configure() {
-#  NOCONFIGURE=1 ./autogen.sh
-  autoreconf -fi
+  NOCONFIGURE=1 ./autogen.sh
+#  autoreconf -fi
 }
 
 post_install() {
