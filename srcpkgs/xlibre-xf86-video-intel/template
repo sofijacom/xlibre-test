@@ -5,7 +5,7 @@ _pkgname=xf86-video-intel
 version=25.0.2
 revision=3
 build_style=meson
-configure_args="-Ddri3=true -Dtearfree=true -Dvalgrind=false -Dlibexecdir=/usr/lib"
+configure_args="-Ddri3=true -Dtearfree=true -Dvalgrind=false"
 hostmakedepends="pkg-config meson git gawk"
 makedepends="xlibre-xserver-devel libXScrnSaver-devel libXcursor-devel libXinerama-devel libXrandr-devel libXtst-devel libXvMC-devel xorgproto libdrm-devel fakeroot meson gawk gettext pkgconf valgrind-devel libXdamage-devel libXxf86vm-devel"
 depends="virtual?xserver-abi-video-25_1 mesa-dri"
