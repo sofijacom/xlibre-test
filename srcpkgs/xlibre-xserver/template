@@ -144,11 +144,17 @@ post_install() {
 	#	vinstall "$vbemodes_h" 644 usr/include/xorg
 	#fi
 
-# Ставим все vbe/int10 SDK-заголовки из исходников —
-# meson не устанавливает их как SDK при -Dint10=false (non-x86),
-# а драйверам они всё равно нужны для компиляции.
-find ${wrksrc} \( -path '*/int10/*' -o -path '*/vbe/*' \) -name '*.h' \
-	-exec vinstall {} 644 usr/include/xorg \;
+  vbe_h=$(find ${wrksrc} -name 'vbe.h' | head -n1)
+  vbemodes_h=$(find ${wrksrc} -name 'vbeModes.h' | head -n1)
+  int10_h=$(find ${wrksrc} -name 'xf86int10.h' | head -n1)
+
+  if [ -z "$vbe_h" ] || [ -z "$vbemodes_h" ] || [ -z "$int10_h" ]; then
+	 echo "=> WARNING: vbe.h/vbeModes.h/xf86int10.h NOT FOUND in ${wrksrc} for ${XBPS_TARGET_MACHINE} — VBE/int10 SDK headers won't be shipped!"
+  else
+	 vinstall "$vbe_h" 644 usr/include/xorg
+	 vinstall "$vbemodes_h" 644 usr/include/xorg
+	 vinstall "$int10_h" 644 usr/include/xorg
+fi
 
 	pkg_install() {
 		vmove usr/lib/xorg/protocol.txt
