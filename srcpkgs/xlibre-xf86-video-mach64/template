@@ -22,6 +22,14 @@ checksum=8118cd54d51163fe9c6246a4f02a9457d5696167a469607fd9539a02b3a2e9af
 
 LDFLAGS="-Wl,-z,lazy"
 
+post_patch() {
+	vsed -i configure.ac \
+		-e '/if test "x\$DRI" != xno; then/,/^fi$/{
+			s/AC_CHECK_FILE(\[\${sdkdir}\/dri\.h\], \[have_dri_h="yes"\], \[have_dri_h="no"\])/if test "$cross_compiling" = "yes"; then have_dri_h="yes"; have_sarea_h="yes"; have_dristruct_h="yes"; else AC_CHECK_FILE([\${sdkdir}\/dri.h], [have_dri_h="yes"], [have_dri_h="no"])/
+			s/AC_CHECK_FILE(\[\${sdkdir}\/dristruct\.h\], \[have_dristruct_h="yes"\], \[have_dristruct_h="no"\])/AC_CHECK_FILE([\${sdkdir}\/dristruct.h], [have_dristruct_h="yes"], [have_dristruct_h="no"]); fi/
+		}'
+}
+
 pre_configure() {
 #	autoreconf -fi
 	NOCONFIGURE=1 ./autogen.sh
