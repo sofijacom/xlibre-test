@@ -17,7 +17,6 @@ makedepends="
  libXvMC-devel
  xorgproto
  libdrm-devel
- xf86-video-intel
  fakeroot
  gawk
  gettext
