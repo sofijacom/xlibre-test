@@ -3,11 +3,28 @@
 pkgname=xlibre-xf86-video-intel
 _pkgname=xf86-video-intel
 version=25.0.2
-revision=3
+revision=4 # увеличен после правки зависимостей
 build_style=meson
-# configure_args="-Ddri3=true -Dtearfree=true -Dvalgrind=false"
+configure_args="-Ddri3=true -Dtearfree=true -Dvalgrind=false"
 hostmakedepends="pkg-config meson git gawk"
-makedepends="xlibre-xserver-devel libXScrnSaver-devel libXcursor-devel libXinerama-devel libXrandr-devel libXtst-devel libXvMC-devel xorgproto libdrm-devel xf86-video-intel fakeroot gawk gettext valgrind-devel libXdamage-devel libXxf86vm-devel autoconf automake libtool"
+makedepends="
+ xlibre-xserver-devel
+ libXScrnSaver-devel
+ libXcursor-devel
+ libXinerama-devel
+ libXrandr-devel
+ libXtst-devel
+ libXvMC-devel
+ xorgproto
+ libdrm-devel
+ xf86-video-intel
+ fakeroot
+ gawk
+ gettext
+ valgrind-devel
+ libXdamage-devel
+ libXxf86vm-devel
+ autoconf automake libtool"
 depends="virtual?xserver-abi-video-25_1 mesa-dri"
 short_desc="XLibre Intel video driver"
 maintainer="Sofiya <sofiya@v.com>"
