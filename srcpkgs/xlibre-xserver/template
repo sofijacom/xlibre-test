@@ -150,7 +150,9 @@ post_install() {
 find ${wrksrc} \( -path '*/int10/*' -o -path '*/vbe/*' \) -name '*.h' \
 	-exec vinstall {} 644 usr/include/xorg \;
 
-	vmove usr/lib/xorg/protocol.txt
+	pkg_install() {
+		vmove usr/lib/xorg/protocol.txt
+	}
 }
 
 xlibre-xserver-xnest_package() {
